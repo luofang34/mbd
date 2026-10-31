@@ -1,0 +1,13 @@
+[package]
+name = "mbd-core"
+description = "Model-based design contracts: live component tree, mounting-site physics, layered ports, pluggable aerodynamics"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam = { workspace = true }
+thiserror = { workspace = true }

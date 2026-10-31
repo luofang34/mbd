@@ -1,0 +1,20 @@
+[package]
+name = "syspack"
+description = "Universal system packages: the syspack.json schema, SHA-256 asset verification, and a fail-closed loader for vehicles and stationary systems alike"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam = { workspace = true }
+mbd-core = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
