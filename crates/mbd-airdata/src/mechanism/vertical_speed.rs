@@ -53,6 +53,11 @@ impl VerticalSpeedIndicator {
         Ok(indicator)
     }
 
+    /// The dial face.
+    pub fn scale(&self) -> &DialScale {
+        self.drive.scale()
+    }
+
     /// The case pressure behind the leak, Pa.
     pub fn case_pa(&self) -> f64 {
         self.case.value()

@@ -45,6 +45,11 @@ impl PressureGauge {
         Ok(gauge)
     }
 
+    /// The dial face.
+    pub fn scale(&self) -> &DialScale {
+        self.drive.scale()
+    }
+
     /// Settles line and needle at `pressure_pa`.
     pub fn reset(&mut self, pressure_pa: f64) {
         self.line.reset(pressure_pa);
@@ -101,6 +106,11 @@ impl Tachometer {
         };
         tachometer.reset(rpm);
         Ok(tachometer)
+    }
+
+    /// The dial face.
+    pub fn scale(&self) -> &DialScale {
+        self.drive.scale()
     }
 
     /// Settles cup and needle at `rpm`.
