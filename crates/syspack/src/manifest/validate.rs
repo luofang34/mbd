@@ -73,6 +73,9 @@ impl SyspackManifest {
         self.validate_assets()?;
         self.validate_dynamics()?;
         self.validate_instrument_pack()?;
+        if self.validate_typeface_pack()? {
+            return Ok(());
+        }
         let keys = self.validate_components()?;
         self.validate_devices(&keys)
     }
@@ -136,6 +139,29 @@ impl SyspackManifest {
             check_pin(pin)?;
         }
         Ok(())
+    }
+
+    /// A typeface pack is a static, massless holder of a face and its
+    /// provenance; only it describes a typeface. Whether it was one.
+    fn validate_typeface_pack(&self) -> Result<bool, SyspackError> {
+        let shape = |detail| Err(SyspackError::TypefacePackShape { detail });
+        let Some(typeface) = &self.typeface else {
+            if self.kind == SystemKind::TypefacePack {
+                return shape("a typeface pack must describe its typeface");
+            }
+            return Ok(false);
+        };
+        if self.kind != SystemKind::TypefacePack {
+            return shape("only a typeface pack describes a typeface");
+        }
+        if self.dynamics != DynamicsSpec::None || self.instrument_pack.is_some() {
+            return shape("a typeface pack has no dynamics and pins nothing");
+        }
+        if !self.components.is_empty() || !self.devices.is_empty() {
+            return shape("a typeface pack has no components or devices");
+        }
+        typeface.validate(|path| self.assets.contains_key(path))?;
+        Ok(true)
     }
 
     fn check_declared(&self, path: &str) -> Result<(), SyspackError> {

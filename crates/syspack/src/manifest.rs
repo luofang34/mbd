@@ -40,6 +40,10 @@ pub enum SystemKind {
     /// `instruments.json` asset, that vehicles pin with an
     /// [`InstrumentPackRef`]. It does not move.
     InstrumentPack,
+    /// A lettering face and its provenance, described by the manifest's
+    /// [`crate::TypefaceSpec`], that instrument packs pin with a
+    /// [`crate::TypefacePin`]. It has no components and does not move.
+    TypefacePack,
 }
 
 /// The expected content of one asset file.
@@ -292,6 +296,9 @@ pub struct SyspackManifest {
     /// The shared instrument pack the system's cockpit uses, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instrument_pack: Option<InstrumentPackRef>,
+    /// What a `TypefacePack` holds; nothing for any other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typeface: Option<crate::TypefaceSpec>,
 }
 
 impl SyspackManifest {
