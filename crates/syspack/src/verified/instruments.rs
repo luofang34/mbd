@@ -19,7 +19,7 @@ pub(super) fn parse_document(
     InstrumentPackDocument::parse(bytes)
 }
 
-fn check(field: &'static str, expected: &str, actual: &str) -> Result<(), SyspackError> {
+pub(super) fn check(field: &'static str, expected: &str, actual: &str) -> Result<(), SyspackError> {
     if expected == actual {
         return Ok(());
     }
