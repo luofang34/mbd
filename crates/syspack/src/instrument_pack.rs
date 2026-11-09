@@ -1,6 +1,6 @@
 //! The `instruments.json` schema of an instrument pack: each instrument's
-//! real designation, mechanism parameters, dial face, markings, bezel and
-//! signal source, and a default panel layout shared by every vehicle that
+//! real designation, mechanism parameters, dial scale, markings, bezel,
+//! signal source and optionally how the face is printed, and a default panel layout shared by every vehicle that
 //! pins the pack. Vehicles supply only the panel's frame.
 
 use serde::{Deserialize, Serialize};
@@ -8,9 +8,16 @@ use serde::{Deserialize, Serialize};
 use crate::SyspackError;
 
 mod convert;
+mod dial;
+mod lettering;
 mod validate;
 
 pub use convert::InstrumentMechanism;
+pub use dial::{
+    DialFaceSpec, FailureSpec, GraduationSpec, LegendSpec, NumeralSpec, PointerFaceSpec,
+    PointerShapeSpec,
+};
+pub use lettering::{FaceStyleSpec, LetteringSpec};
 pub use validate::SourceBinding;
 
 #[cfg(test)]
@@ -32,6 +39,9 @@ pub struct InstrumentPackDocument {
     pub instruments: Vec<InstrumentSpec>,
     /// Where each instrument sits on the panel by default.
     pub layout: Vec<LayoutSlotSpec>,
+    /// The typeface packs the dials are lettered in, each pinned once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typefaces: Vec<crate::TypefacePin>,
 }
 
 impl InstrumentPackDocument {
@@ -69,6 +79,35 @@ pub struct InstrumentSpec {
     pub markings: Vec<MarkingSpec>,
     /// What the instrument is, with its mechanism's parameters.
     pub kind: InstrumentKindSpec,
+    /// How the face is printed, for a renderer; nothing here moves a needle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dial: Option<DialFaceSpec>,
+    /// Further pointers in the same case, after the one `source` and `kind`
+    /// describe, each with its own input, mechanism and scale: an engine
+    /// gage unit's oil pressure and fuel pressure beside its oil
+    /// temperature, or the right tank's pointer on a dual fuel gauge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointers: Vec<PointerChannelSpec>,
+    /// The faces the dial is lettered in; the renderer's default face when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lettering: Option<LetteringSpec>,
+}
+
+/// One further pointer of an instrument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PointerChannelSpec {
+    /// Slug, unique within the instrument.
+    pub id: String,
+    /// Where its input comes from; see [`SourceBinding`].
+    pub source: String,
+    /// Its mechanism and scale. An altimeter has hands of its own and is
+    /// never a further pointer.
+    pub kind: InstrumentKindSpec,
+    /// How its scale is printed, such as a sub-dial's centre and radius.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dial: Option<DialFaceSpec>,
 }
 
 /// A standard instrument case size.
@@ -144,6 +183,10 @@ pub enum DialUnitSpec {
     PoundsPerSquareInch,
     /// Revolutions per minute.
     RevolutionsPerMinute,
+    /// Degrees Celsius.
+    DegreesCelsius,
+    /// United States liquid gallons.
+    UsGallons,
 }
 
 /// The Kollsman window's range, in its engraved unit.
@@ -210,6 +253,50 @@ pub enum InstrumentKindSpec {
         /// Drag-cup time constant, s.
         drag_cup_tau_s: f64,
     },
+    /// A vapour-pressure or resistance thermometer: oil, coolant or
+    /// carburettor air temperature.
+    Thermometer {
+        /// `DegreesCelsius`.
+        units: DialUnitSpec,
+        /// The dial face.
+        scale: Vec<ScalePoint>,
+        /// Time constant of the bulb, s; zero for none.
+        bulb_tau_s: f64,
+    },
+    /// A float-transmitter fuel-quantity gauge for one tank.
+    FuelQuantity {
+        /// `UsGallons`.
+        units: DialUnitSpec,
+        /// The dial face.
+        scale: Vec<ScalePoint>,
+        /// Time constant of the damped float, s; zero for none.
+        transmitter_tau_s: f64,
+    },
+    /// An instrument whose face and value-to-angle laws are the renderer's
+    /// own and whose reading comes from the vehicle's state directly. No
+    /// mechanism of it is modelled, so it shows the state without lag or
+    /// instrument error.
+    Direct {
+        /// Which instrument.
+        instrument: DirectInstrument,
+    },
+}
+
+/// An instrument a renderer draws from the vehicle's state directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DirectInstrument {
+    /// A gyro horizon: bank and pitch.
+    GyroHorizon,
+    /// A directional gyro: gyro heading.
+    DirectionalGyro,
+    /// A turn and bank indicator: yaw rate and the ball.
+    TurnAndBank,
+    /// A magnetic compass: magnetic heading.
+    MagneticCompass,
+    /// A clock: the time of day.
+    Clock,
+    /// An engine synchroscope: the second engine's shaft against the first's.
+    Synchroscope,
 }
 
 /// The colour of a dial marking, as the certification rules assign them.

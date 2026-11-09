@@ -47,6 +47,10 @@ pub enum SystemKind {
     /// A reusable propeller, described by a `propeller.json` asset, that
     /// vehicles pin with a [`PartRef`]. It does not move on its own.
     Propeller,
+    /// A lettering face and its provenance, described by the manifest's
+    /// [`crate::TypefaceSpec`], that instrument packs pin with a
+    /// [`crate::TypefacePin`]. It has no components and does not move.
+    TypefacePack,
 }
 
 /// Document asset every engine part declares.
@@ -342,6 +346,9 @@ pub struct SyspackManifest {
     /// The part packages the system is assembled from; none when omitted.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub parts: Vec<PartRef>,
+    /// What a `TypefacePack` holds; nothing for any other kind.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub typeface: Option<crate::TypefaceSpec>,
 }
 
 impl SyspackManifest {

@@ -100,7 +100,71 @@ fn check_instrument(spec: &InstrumentSpec) -> Result<(), SyspackError> {
     if matches!(spec.bezel, BezelSize::Custom { .. }) && diameter_m > 1.0 {
         return Err(invalid(spec, "bezel", "diameter above 1 m"));
     }
-    let binding = SourceBinding::parse(&spec.source).ok_or_else(|| {
+    check_source(spec, &spec.source, &spec.kind)?;
+    check_markings(spec)?;
+    if let Some(dial) = &spec.dial {
+        dial.validate(spec)?;
+    }
+    check_pointers(spec)?;
+    spec.mechanism()?;
+    spec.pointer_mechanisms().map(|_| ())
+}
+
+/// The most further pointers a case holds beside its first.
+const MAX_FURTHER_POINTERS: usize = 3;
+
+fn check_pointers(spec: &InstrumentSpec) -> Result<(), SyspackError> {
+    if spec.pointers.is_empty() {
+        return Ok(());
+    }
+    if spec.pointers.len() > MAX_FURTHER_POINTERS {
+        return Err(invalid(
+            spec,
+            "pointers",
+            "a case holds at most four pointers",
+        ));
+    }
+    let altimeter =
+        |kind: &InstrumentKindSpec| matches!(kind, InstrumentKindSpec::Altimeter { .. });
+    if altimeter(&spec.kind) {
+        return Err(invalid(
+            spec,
+            "pointers",
+            "an altimeter's hands are its own",
+        ));
+    }
+    let mut ids = BTreeSet::new();
+    for pointer in &spec.pointers {
+        if !is_slug(&pointer.id) || !ids.insert(pointer.id.as_str()) {
+            return Err(invalid(
+                spec,
+                "pointers",
+                "pointer ids must be unique lowercase slugs",
+            ));
+        }
+        if altimeter(&pointer.kind) {
+            return Err(invalid(
+                spec,
+                "pointers",
+                "an altimeter is never a further pointer",
+            ));
+        }
+        check_source(spec, &pointer.source, &pointer.kind)?;
+        if let Some(dial) = &pointer.dial {
+            dial.validate(spec)?;
+        }
+    }
+    Ok(())
+}
+
+/// Checks that `source` parses and suits `kind`: pitot-static instruments,
+/// and only they, read a pitot-static system.
+fn check_source(
+    spec: &InstrumentSpec,
+    source: &str,
+    kind: &InstrumentKindSpec,
+) -> Result<(), SyspackError> {
+    let binding = SourceBinding::parse(source).ok_or_else(|| {
         invalid(
             spec,
             "source",
@@ -108,7 +172,7 @@ fn check_instrument(spec: &InstrumentSpec) -> Result<(), SyspackError> {
         )
     })?;
     let pneumatic = matches!(
-        spec.kind,
+        kind,
         InstrumentKindSpec::Airspeed { .. }
             | InstrumentKindSpec::Altimeter { .. }
             | InstrumentKindSpec::VerticalSpeed { .. }
@@ -127,16 +191,27 @@ fn check_instrument(spec: &InstrumentSpec) -> Result<(), SyspackError> {
             "only pitot-static instruments read pitot_static",
         ));
     }
-    check_markings(spec)?;
-    spec.mechanism().map(|_| ())
+    Ok(())
 }
 
 impl InstrumentPackDocument {
     /// Checks every instrument and the layout.
     pub(super) fn validate(&self) -> Result<(), SyspackError> {
+        let mut faces = BTreeSet::new();
+        for pin in &self.typefaces {
+            pin.validate()?;
+            if !faces.insert(pin.id.as_str()) {
+                return Err(SyspackError::TypefacePackShape {
+                    detail: "a pack pins each typeface once",
+                });
+            }
+        }
         let mut ids = BTreeSet::new();
         for spec in &self.instruments {
             check_instrument(spec)?;
+            if let Some(lettering) = &spec.lettering {
+                lettering.validate(spec, self)?;
+            }
             if !ids.insert(spec.id.as_str()) {
                 return Err(SyspackError::DuplicateInstrument {
                     id: spec.id.clone(),

@@ -9,6 +9,7 @@ mod altimeter;
 mod dial;
 mod gauge;
 mod needle;
+mod sensed;
 mod vertical_speed;
 
 pub use airspeed::{AirspeedConfig, AirspeedIndicator};
@@ -16,4 +17,5 @@ pub use altimeter::{Altimeter, AltimeterConfig, AltimeterReading, KollsmanWindow
 pub use dial::{DialReading, DialScale};
 pub use gauge::{PressureGauge, PressureGaugeConfig, Tachometer, TachometerConfig};
 pub use needle::{NeedleConfig, NeedleDynamics};
+pub use sensed::{FuelQuantityGauge, SensedGaugeConfig, Thermometer};
 pub use vertical_speed::{VerticalSpeedConfig, VerticalSpeedIndicator};

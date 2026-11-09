@@ -10,6 +10,10 @@ const KNOT_M_S: f64 = 1_852.0 / 3_600.0;
 const MPH_M_S: f64 = 0.447_04;
 /// One international foot, m.
 const FOOT_M: f64 = 0.3048;
+/// One US liquid gallon, m³.
+const US_GALLON_M3: f64 = 0.003_785_411_784;
+/// 0 °C, K.
+const CELSIUS_ZERO_K: f64 = 273.15;
 
 /// The unit a dial is engraved in. Mechanisms work in SI and convert at the
 /// dial, so one mechanism serves a knots ASI and a km/h ASI alike.
@@ -39,6 +43,10 @@ pub enum DialUnit {
     PoundsPerSquareInch,
     /// Revolutions per minute.
     RevolutionsPerMinute,
+    /// Degrees Celsius.
+    DegreesCelsius,
+    /// United States liquid gallons.
+    UsGallons,
 }
 
 /// The physical quantity a unit measures.
@@ -48,6 +56,8 @@ pub(crate) enum Quantity {
     Length,
     Pressure,
     RotationRate,
+    Temperature,
+    Volume,
 }
 
 impl DialUnit {
@@ -66,10 +76,13 @@ impl DialUnit {
             Self::Kilopascals => "kilopascals",
             Self::PoundsPerSquareInch => "pounds per square inch",
             Self::RevolutionsPerMinute => "revolutions per minute",
+            Self::DegreesCelsius => "degrees Celsius",
+            Self::UsGallons => "US gallons",
         }
     }
 
-    /// The SI value of one dial unit: m/s, m, Pa, or rev/min for rotation.
+    /// The SI value of one dial unit: m/s, m, Pa, K, m³, or rev/min for
+    /// rotation.
     fn si_per_unit(self) -> f64 {
         match self {
             Self::Knots => KNOT_M_S,
@@ -82,17 +95,27 @@ impl DialUnit {
             Self::Hectopascals => 100.0,
             Self::Kilopascals => 1_000.0,
             Self::PoundsPerSquareInch => PSI_PA,
+            Self::DegreesCelsius => 1.0,
+            Self::UsGallons => US_GALLON_M3,
         }
     }
 
-    /// `si` (m/s, m, Pa or rev/min) in this unit.
-    pub fn from_si(self, si: f64) -> f64 {
-        si / self.si_per_unit()
+    /// The SI value of this unit's zero: a Celsius dial starts at 273.15 K.
+    fn si_at_zero(self) -> f64 {
+        match self {
+            Self::DegreesCelsius => CELSIUS_ZERO_K,
+            _ => 0.0,
+        }
     }
 
-    /// `value` in this unit, in SI (m/s, m, Pa or rev/min).
+    /// `si` (m/s, m, Pa, K, m³ or rev/min) in this unit.
+    pub fn from_si(self, si: f64) -> f64 {
+        (si - self.si_at_zero()) / self.si_per_unit()
+    }
+
+    /// `value` in this unit, in SI (m/s, m, Pa, K, m³ or rev/min).
     pub fn to_si(self, value: f64) -> f64 {
-        value * self.si_per_unit()
+        value * self.si_per_unit() + self.si_at_zero()
     }
 
     pub(crate) fn quantity(self) -> Quantity {
@@ -108,6 +131,8 @@ impl DialUnit {
             | Self::Kilopascals
             | Self::PoundsPerSquareInch => Quantity::Pressure,
             Self::RevolutionsPerMinute => Quantity::RotationRate,
+            Self::DegreesCelsius => Quantity::Temperature,
+            Self::UsGallons => Quantity::Volume,
         }
     }
 

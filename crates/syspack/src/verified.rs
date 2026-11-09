@@ -11,6 +11,7 @@ mod dynamics;
 mod instruments;
 mod parts;
 mod tree;
+mod typeface;
 
 pub use tree::INITIAL_COMPONENT_TEMPERATURE_K;
 
