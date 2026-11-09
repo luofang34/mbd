@@ -4,6 +4,8 @@ description = "Standard atmosphere, pitot-static air data and deterministic mech
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
+repository.workspace = true
 
 [lints]
 workspace = true
