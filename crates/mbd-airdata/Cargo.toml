@@ -1,0 +1,13 @@
+[package]
+name = "mbd-airdata"
+description = "Standard atmosphere, pitot-static air data and deterministic mechanical instrument mechanisms"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+libm = { workspace = true }
+thiserror = { workspace = true }

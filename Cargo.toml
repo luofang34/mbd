@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/mbd-core", "crates/syspack"]
+members = ["crates/mbd-airdata", "crates/mbd-core", "crates/syspack"]
 
 [workspace.package]
 version = "0.1.0"
@@ -8,10 +8,12 @@ edition = "2024"
 publish = false
 
 [workspace.dependencies]
+mbd-airdata = { path = "crates/mbd-airdata" }
 mbd-core = { path = "crates/mbd-core" }
 syspack = { path = "crates/syspack" }
 
 glam = { version = "0.33", default-features = false, features = ["f64", "libm"] }
+libm = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 sha2 = "0.11"
