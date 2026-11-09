@@ -22,6 +22,15 @@ pub struct DialFaceSpec {
     /// Diameter of the visible face inside the bezel, m.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face_diameter_m: Option<f64>,
+    /// Centre of this scale and its pointer's pivot `[x, y]`, fractions of
+    /// the face radius: off centre for one of several sub-dials sharing a
+    /// face. The face centre when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_centre: Option<[f64; 2]>,
+    /// Radius of this scale, fraction of the face radius; the whole face
+    /// when absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ring_radius: Option<f64>,
     /// Runs of evenly spaced graduations, in dial units. An altimeter's are in
     /// units of its long hand, one turn per 1 000.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -153,6 +162,15 @@ impl DialFaceSpec {
     pub(super) fn validate(&self, spec: &InstrumentSpec) -> Result<(), SyspackError> {
         if self.reference_deg.is_some_and(|deg| !deg.is_finite()) {
             return Err(invalid(spec, "reference_deg must be finite"));
+        }
+        if self
+            .ring_centre
+            .is_some_and(|c| !c.iter().all(|v| v.is_finite() && v.abs() <= 1.0))
+        {
+            return Err(invalid(spec, "ring_centre must lie on the face"));
+        }
+        if self.ring_radius.is_some_and(|r| !(positive(r) && r <= 1.0)) {
+            return Err(invalid(spec, "ring_radius must be positive and at most 1"));
         }
         if let Some(diameter) = self.face_diameter_m
             && !(positive(diameter) && diameter <= spec.bezel.diameter_m())

@@ -77,6 +77,28 @@ pub struct InstrumentSpec {
     /// How the face is printed, for a renderer; nothing here moves a needle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dial: Option<DialFaceSpec>,
+    /// Further pointers in the same case, after the one `source` and `kind`
+    /// describe, each with its own input, mechanism and scale: an engine
+    /// gage unit's oil pressure and fuel pressure beside its oil
+    /// temperature, or the right tank's pointer on a dual fuel gauge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pointers: Vec<PointerChannelSpec>,
+}
+
+/// One further pointer of an instrument.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PointerChannelSpec {
+    /// Slug, unique within the instrument.
+    pub id: String,
+    /// Where its input comes from; see [`SourceBinding`].
+    pub source: String,
+    /// Its mechanism and scale. An altimeter has hands of its own and is
+    /// never a further pointer.
+    pub kind: InstrumentKindSpec,
+    /// How its scale is printed, such as a sub-dial's centre and radius.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dial: Option<DialFaceSpec>,
 }
 
 /// A standard instrument case size.
@@ -152,6 +174,10 @@ pub enum DialUnitSpec {
     PoundsPerSquareInch,
     /// Revolutions per minute.
     RevolutionsPerMinute,
+    /// Degrees Celsius.
+    DegreesCelsius,
+    /// United States liquid gallons.
+    UsGallons,
 }
 
 /// The Kollsman window's range, in its engraved unit.
@@ -217,6 +243,25 @@ pub enum InstrumentKindSpec {
         scale: Vec<ScalePoint>,
         /// Drag-cup time constant, s.
         drag_cup_tau_s: f64,
+    },
+    /// A vapour-pressure or resistance thermometer: oil, coolant or
+    /// carburettor air temperature.
+    Thermometer {
+        /// `DegreesCelsius`.
+        units: DialUnitSpec,
+        /// The dial face.
+        scale: Vec<ScalePoint>,
+        /// Time constant of the bulb, s; zero for none.
+        bulb_tau_s: f64,
+    },
+    /// A float-transmitter fuel-quantity gauge for one tank.
+    FuelQuantity {
+        /// `UsGallons`.
+        units: DialUnitSpec,
+        /// The dial face.
+        scale: Vec<ScalePoint>,
+        /// Time constant of the damped float, s; zero for none.
+        transmitter_tau_s: f64,
     },
 }
 
