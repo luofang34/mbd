@@ -1,3 +1,4 @@
+use mbd_airdata::AirdataError;
 use mbd_core::MbdError;
 
 /// Why a system package could not be read, verified, or built.
@@ -169,5 +170,65 @@ pub enum SyspackError {
         needed: &'static str,
         /// The dynamics the manifest declares.
         declared: &'static str,
+    },
+    /// An instrument pack's manifest breaks the shape every pack has.
+    #[error("{detail}")]
+    InstrumentPackShape {
+        /// The rule broken.
+        detail: &'static str,
+    },
+    /// `instruments.json` is not a well-formed instrument document.
+    #[error("instruments.json is malformed")]
+    InstrumentsParse(#[source] serde_json::Error),
+    /// An instrument's description is out of range.
+    #[error("instrument {instrument:?}: {field}: {detail}")]
+    InvalidInstrument {
+        /// The instrument.
+        instrument: String,
+        /// The offending field.
+        field: &'static str,
+        /// What is wrong with it.
+        detail: String,
+    },
+    /// An instrument's mechanism parameters are not physical.
+    #[error("instrument {instrument:?} has an invalid mechanism")]
+    InstrumentMechanism {
+        /// The instrument.
+        instrument: String,
+        /// Why the mechanism was rejected.
+        #[source]
+        source: AirdataError,
+    },
+    /// Two instruments share an id.
+    #[error("instrument id {id:?} is declared twice")]
+    DuplicateInstrument {
+        /// The repeated id.
+        id: String,
+    },
+    /// A layout slot's name or placement is invalid.
+    #[error("layout slot {slot:?}: {detail}")]
+    InvalidLayoutSlot {
+        /// The slot.
+        slot: String,
+        /// What is wrong with it.
+        detail: &'static str,
+    },
+    /// A layout slot names an instrument the pack does not have.
+    #[error("layout slot {slot:?} names unknown instrument {instrument:?}")]
+    UnknownLayoutInstrument {
+        /// The slot.
+        slot: String,
+        /// The unresolved instrument id.
+        instrument: String,
+    },
+    /// A package does not match the pin a vehicle holds on it.
+    #[error("instrument pack {field} is {actual:?}; the vehicle pins {expected:?}")]
+    PinMismatch {
+        /// What differs: `id`, `version`, `kind` or `manifest_sha256`.
+        field: &'static str,
+        /// The pinned value.
+        expected: String,
+        /// The package's value.
+        actual: String,
     },
 }

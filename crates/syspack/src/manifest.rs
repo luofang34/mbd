@@ -36,6 +36,10 @@ pub enum SystemKind {
     TestBench,
     /// Anything else with components and devices.
     GenericSystem,
+    /// A shareable set of cockpit instruments, described by an
+    /// `instruments.json` asset, that vehicles pin with an
+    /// [`InstrumentPackRef`]. It does not move.
+    InstrumentPack,
 }
 
 /// The expected content of one asset file.
@@ -208,6 +212,22 @@ pub enum DeviceKindSpec {
         /// Capture rate, which must divide the master clock, Hz.
         rate_hz: u64,
     },
+    /// A pitot-static system: a total-pressure probe and static ports, each
+    /// feeding the instruments through a pneumatic line.
+    PitotStatic {
+        /// Pitot probe tip position in root axes, metres.
+        pitot_body_m: [f64; 3],
+        /// Static port position in root axes, metres.
+        static_body_m: [f64; 3],
+        /// The probe installation, such as `kollsman_d2_pitot_static_head`
+        /// or `boom_pitot_fuselage_static`, for consumers that model its
+        /// position error or icing.
+        probe: String,
+        /// Time constant of the total-pressure line to the instruments, s.
+        total_line_tau_s: f64,
+        /// Time constant of the static line to the instruments, s.
+        static_line_tau_s: f64,
+    },
     /// A device this crate cannot build: the crate that claims `type_id`
     /// interprets `parameters`.
     Custom {
@@ -228,6 +248,20 @@ pub struct MountedDeviceSpec {
     pub site: String,
     /// What the device is.
     pub kind: DeviceKindSpec,
+}
+
+/// A vehicle's pin on a shared instrument pack. The vehicle's manifest is
+/// the trust root, so naming the pack's exact `syspack.json` digest makes the
+/// pack as trusted as the vehicle's own assets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InstrumentPackRef {
+    /// The pack's package id.
+    pub id: String,
+    /// The pack's package version.
+    pub version: String,
+    /// SHA-256 of the pack's `syspack.json` bytes, hexadecimal.
+    pub manifest_sha256: String,
 }
 
 /// The content of a system's `syspack.json`.
@@ -255,6 +289,9 @@ pub struct SyspackManifest {
     pub controls: ControlsSpec,
     /// Everything mounted on the system.
     pub devices: Vec<MountedDeviceSpec>,
+    /// The shared instrument pack the system's cockpit uses, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instrument_pack: Option<InstrumentPackRef>,
 }
 
 impl SyspackManifest {

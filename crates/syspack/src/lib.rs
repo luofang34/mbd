@@ -12,16 +12,22 @@
 //! verified data.
 
 mod error;
+mod instrument_pack;
 mod manifest;
 mod source;
 mod verified;
 
 pub use error::SyspackError;
+pub use instrument_pack::{
+    BezelSize, DialUnitSpec, INSTRUMENTS_ASSET, InstrumentKindSpec, InstrumentMechanism,
+    InstrumentPackDocument, InstrumentSpec, KollsmanSpec, LayoutSlotSpec, MarkingColour,
+    MarkingSpec, NeedleSpec, ScalePoint, SourceBinding,
+};
 pub use manifest::{
-    AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec, MountedDeviceSpec,
-    SCHEMA_VERSION, SyspackManifest, SystemKind,
+    AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec, InstrumentPackRef,
+    MountedDeviceSpec, SCHEMA_VERSION, SyspackManifest, SystemKind,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;
 pub use source::{MANIFEST_FILE, MemoryPackageSource, PackageSource};
-pub use verified::{INITIAL_COMPONENT_TEMPERATURE_K, VerifiedSyspack};
+pub use verified::{INITIAL_COMPONENT_TEMPERATURE_K, VerifiedSyspack, sha256_hex};

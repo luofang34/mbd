@@ -262,6 +262,7 @@ name = "syspack"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "mbd-airdata",
  "mbd-core",
  "serde",
  "serde_json",

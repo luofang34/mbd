@@ -1,7 +1,11 @@
 use std::collections::BTreeSet;
 
-use super::{DeviceKindSpec, DynamicsSpec, MountedDeviceSpec, SCHEMA_VERSION, SyspackManifest};
+use super::{
+    DeviceKindSpec, DynamicsSpec, InstrumentPackRef, MountedDeviceSpec, SCHEMA_VERSION,
+    SyspackManifest, SystemKind,
+};
 use crate::SyspackError;
+use crate::instrument_pack::INSTRUMENTS_ASSET;
 
 const SHA256_HEX_DIGITS: usize = 64;
 
@@ -32,7 +36,11 @@ pub(crate) fn check_asset_path(path: &str) -> Result<(), SyspackError> {
     Ok(())
 }
 
-fn is_slug(id: &str) -> bool {
+fn is_sha256_hex(digest: &str) -> bool {
+    digest.len() == SHA256_HEX_DIGITS && digest.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+pub(crate) fn is_slug(id: &str) -> bool {
     !id.is_empty()
         && id
             .chars()
@@ -64,6 +72,7 @@ impl SyspackManifest {
         require("version", &self.version)?;
         self.validate_assets()?;
         self.validate_dynamics()?;
+        self.validate_instrument_pack()?;
         let keys = self.validate_components()?;
         self.validate_devices(&keys)
     }
@@ -71,9 +80,7 @@ impl SyspackManifest {
     fn validate_assets(&self) -> Result<(), SyspackError> {
         for (path, digest) in &self.assets {
             check_asset_path(path)?;
-            let hexadecimal = digest.sha256.len() == SHA256_HEX_DIGITS
-                && digest.sha256.chars().all(|c| c.is_ascii_hexdigit());
-            if !hexadecimal {
+            if !is_sha256_hex(&digest.sha256) {
                 return Err(SyspackError::MalformedDigest {
                     path: path.clone(),
                     sha256: digest.sha256.clone(),
@@ -106,6 +113,27 @@ impl SyspackManifest {
         for (asset, destination) in additional_assets {
             self.check_declared(asset)?;
             check_asset_path(destination)?;
+        }
+        Ok(())
+    }
+
+    /// A pack must be a static `instruments.json` holder; a vehicle's pin
+    /// must name a pack it could match.
+    fn validate_instrument_pack(&self) -> Result<(), SyspackError> {
+        if self.kind == SystemKind::InstrumentPack {
+            let shape = |detail| Err(SyspackError::InstrumentPackShape { detail });
+            if self.dynamics != DynamicsSpec::None {
+                return shape("an instrument pack must declare dynamics None");
+            }
+            if self.instrument_pack.is_some() {
+                return shape("an instrument pack cannot pin another instrument pack");
+            }
+            if !self.assets.contains_key(INSTRUMENTS_ASSET) {
+                return shape("an instrument pack must declare instruments.json");
+            }
+        }
+        if let Some(pin) = &self.instrument_pack {
+            check_pin(pin)?;
         }
         Ok(())
     }
@@ -160,15 +188,63 @@ impl SyspackManifest {
                     site: device.site.clone(),
                 });
             }
-            check_custom(device)?;
+            check_device_kind(device)?;
         }
         Ok(())
     }
 }
 
-fn check_custom(device: &MountedDeviceSpec) -> Result<(), SyspackError> {
+fn check_pin(pin: &InstrumentPackRef) -> Result<(), SyspackError> {
+    if !is_slug(&pin.id) {
+        return Err(SyspackError::InvalidPackageId { id: pin.id.clone() });
+    }
+    require("instrument pack version", &pin.version)?;
+    if !is_sha256_hex(&pin.manifest_sha256) {
+        return Err(SyspackError::MalformedDigest {
+            path: format!("instrument pack {}", pin.id),
+            sha256: pin.manifest_sha256.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn check_device_kind(device: &MountedDeviceSpec) -> Result<(), SyspackError> {
+    let invalid = |field, detail: &str| {
+        Err(SyspackError::InvalidDevice {
+            device: device.id.clone(),
+            field,
+            detail: detail.to_owned(),
+        })
+    };
     match &device.kind {
         DeviceKindSpec::Custom { type_id, .. } => require("custom device type_id", type_id),
+        DeviceKindSpec::PitotStatic {
+            pitot_body_m,
+            static_body_m,
+            probe,
+            total_line_tau_s,
+            static_line_tau_s,
+        } => {
+            if probe.is_empty() {
+                return invalid("probe", "must not be empty");
+            }
+            if !pitot_body_m
+                .iter()
+                .chain(static_body_m)
+                .all(|v| v.is_finite())
+            {
+                return invalid("position", "must be finite");
+            }
+            for (field, tau) in [
+                ("total_line_tau_s", total_line_tau_s),
+                ("static_line_tau_s", static_line_tau_s),
+            ] {
+                if !(tau.is_finite() && *tau >= 0.0) {
+                    return invalid(field, "must be finite and non-negative");
+                }
+            }
+            Ok(())
+        }
         _ => Ok(()),
     }
 }
