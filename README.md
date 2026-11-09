@@ -5,6 +5,7 @@ dependency on either.
 
 | Package | Role |
 |---|---|
+| `mbd-airdata` | `no_std` standard atmosphere, pitot-static laws, position error, and deterministic analog instrument mechanisms (airspeed, altimeter, VSI, gauges) |
 | `mbd-core` | `no_std` contracts: live component tree, mounting-site physics, layered ports, pluggable aerodynamics |
 | `syspack` | Universal system packages: the `syspack.json` schema, SHA-256 asset verification, and a fail-closed loader for vehicles and stationary systems alike |
 
