@@ -271,6 +271,12 @@ fn source_bindings_have_a_closed_grammar() {
         })
     );
     assert_eq!(
+        SourceBinding::parse("pitot_static.Main-Pitot"),
+        Some(SourceBinding::PitotStatic {
+            device: "Main-Pitot".to_owned()
+        })
+    );
+    assert_eq!(
         SourceBinding::parse("engine[1].manifold_pressure"),
         Some(SourceBinding::Engine {
             index: 1,
@@ -286,7 +292,7 @@ fn source_bindings_have_a_closed_grammar() {
     for bad in [
         "",
         "pitot_static.",
-        "pitot_static.Main",
+        "pitot_static.main.static",
         "engine[].rpm",
         "engine[+1].rpm",
         "engine[256].rpm",

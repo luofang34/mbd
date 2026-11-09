@@ -9,7 +9,8 @@ use crate::manifest::validate::is_slug;
 /// instrument; the vehicle resolves the names it contains.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceBinding {
-    /// `pitot_static.<device id>`: the vehicle's
+    /// `pitot_static.<device id>`, with any device id free of `.`, `[` and
+    /// `]`: the vehicle's
     /// [`crate::DeviceKindSpec::PitotStatic`] device with that id.
     PitotStatic {
         /// The device id.
@@ -34,7 +35,8 @@ impl SourceBinding {
     /// Parses a binding, or `None` if `source` fits no form.
     pub fn parse(source: &str) -> Option<Self> {
         if let Some(device) = source.strip_prefix("pitot_static.") {
-            return is_slug(device).then(|| Self::PitotStatic {
+            let usable = !device.is_empty() && !device.contains(['.', '[', ']']);
+            return usable.then(|| Self::PitotStatic {
                 device: device.to_owned(),
             });
         }
