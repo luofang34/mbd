@@ -22,7 +22,7 @@ pub use instrument_pack::{
     BezelSize, DialFaceSpec, DialUnitSpec, FailureSpec, GraduationSpec, INSTRUMENTS_ASSET,
     InstrumentKindSpec, InstrumentMechanism, InstrumentPackDocument, InstrumentSpec, KollsmanSpec,
     LayoutSlotSpec, LegendSpec, MarkingColour, MarkingSpec, NeedleSpec, NumeralSpec,
-    PointerFaceSpec, PointerShapeSpec, ScalePoint, SourceBinding,
+    PointerChannelSpec, PointerFaceSpec, PointerShapeSpec, ScalePoint, SourceBinding,
 };
 pub use manifest::{
     AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec, InstrumentPackRef,

@@ -35,8 +35,9 @@ pub use isa::{
 };
 pub use mechanism::{
     AirspeedConfig, AirspeedIndicator, Altimeter, AltimeterConfig, AltimeterReading, DialReading,
-    DialScale, KollsmanWindow, NeedleConfig, NeedleDynamics, PressureGauge, PressureGaugeConfig,
-    Tachometer, TachometerConfig, VerticalSpeedConfig, VerticalSpeedIndicator,
+    DialScale, FuelQuantityGauge, KollsmanWindow, NeedleConfig, NeedleDynamics, PressureGauge,
+    PressureGaugeConfig, SensedGaugeConfig, Tachometer, TachometerConfig, Thermometer,
+    VerticalSpeedConfig, VerticalSpeedIndicator,
 };
 pub use pitot::{
     cas_from_impact_pressure_m_s, eas_m_s, impact_pressure_from_cas_pa, impact_pressure_pa,
