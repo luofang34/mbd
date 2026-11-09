@@ -23,9 +23,10 @@ mod verified;
 
 pub use error::SyspackError;
 pub use instrument_pack::{
-    BezelSize, DialUnitSpec, INSTRUMENTS_ASSET, InstrumentKindSpec, InstrumentMechanism,
-    InstrumentPackDocument, InstrumentSpec, KollsmanSpec, LayoutSlotSpec, MarkingColour,
-    MarkingSpec, NeedleSpec, ScalePoint, SourceBinding,
+    BezelSize, DialFaceSpec, DialUnitSpec, FailureSpec, GraduationSpec, INSTRUMENTS_ASSET,
+    InstrumentKindSpec, InstrumentMechanism, InstrumentPackDocument, InstrumentSpec, KollsmanSpec,
+    LayoutSlotSpec, LegendSpec, MarkingColour, MarkingSpec, NeedleSpec, NumeralSpec,
+    PointerFaceSpec, PointerShapeSpec, ScalePoint, SourceBinding,
 };
 pub use manifest::{
     AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec,

@@ -128,6 +128,9 @@ fn check_instrument(spec: &InstrumentSpec) -> Result<(), SyspackError> {
         ));
     }
     check_markings(spec)?;
+    if let Some(dial) = &spec.dial {
+        dial.validate(spec)?;
+    }
     spec.mechanism().map(|_| ())
 }
 
