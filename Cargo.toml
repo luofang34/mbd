@@ -6,6 +6,8 @@ members = ["crates/mbd-airdata", "crates/mbd-core", "crates/syspack"]
 version = "0.1.0"
 edition = "2024"
 publish = false
+license = "AGPL-3.0-or-later"
+repository = "https://github.com/luofang34/mbd"
 
 [workspace.dependencies]
 mbd-airdata = { path = "crates/mbd-airdata" }
