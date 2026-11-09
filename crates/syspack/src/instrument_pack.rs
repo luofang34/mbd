@@ -1,6 +1,6 @@
 //! The `instruments.json` schema of an instrument pack: each instrument's
-//! real designation, mechanism parameters, dial face, markings, bezel and
-//! signal source, and a default panel layout shared by every vehicle that
+//! real designation, mechanism parameters, dial scale, markings, bezel,
+//! signal source and optionally how the face is printed, and a default panel layout shared by every vehicle that
 //! pins the pack. Vehicles supply only the panel's frame.
 
 use serde::{Deserialize, Serialize};
@@ -8,9 +8,14 @@ use serde::{Deserialize, Serialize};
 use crate::SyspackError;
 
 mod convert;
+mod dial;
 mod validate;
 
 pub use convert::InstrumentMechanism;
+pub use dial::{
+    DialFaceSpec, FailureSpec, GraduationSpec, LegendSpec, NumeralSpec, PointerFaceSpec,
+    PointerShapeSpec,
+};
 pub use validate::SourceBinding;
 
 #[cfg(test)]
@@ -69,6 +74,9 @@ pub struct InstrumentSpec {
     pub markings: Vec<MarkingSpec>,
     /// What the instrument is, with its mechanism's parameters.
     pub kind: InstrumentKindSpec,
+    /// How the face is printed, for a renderer; nothing here moves a needle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dial: Option<DialFaceSpec>,
 }
 
 /// A standard instrument case size.
