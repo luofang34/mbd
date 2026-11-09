@@ -9,6 +9,7 @@ use crate::{
 
 mod dynamics;
 mod instruments;
+mod parts;
 mod tree;
 
 pub use tree::INITIAL_COMPONENT_TEMPERATURE_K;

@@ -221,6 +221,44 @@ pub enum SyspackError {
         /// The unresolved instrument id.
         instrument: String,
     },
+    /// A part's manifest breaks the shape every part has.
+    #[error("{detail}")]
+    PartShape {
+        /// The rule broken.
+        detail: &'static str,
+    },
+    /// A part does not declare the document its kind requires.
+    #[error("a {kind} part must declare {document}")]
+    PartDocumentMissing {
+        /// The part's kind.
+        kind: String,
+        /// The document asset it lacks.
+        document: &'static str,
+    },
+    /// A part role is not a slug.
+    #[error("part role {role:?} must be a non-empty lowercase slug")]
+    InvalidPartRole {
+        /// The offending role.
+        role: String,
+    },
+    /// Two part pins share a role.
+    #[error("part role {role:?} is pinned twice")]
+    DuplicatePartRole {
+        /// The repeated role.
+        role: String,
+    },
+    /// A part package does not match the pin a vehicle holds on it.
+    #[error("part in role {role:?}: {field} is {actual:?}; the vehicle pins {expected:?}")]
+    PartPinMismatch {
+        /// The role the vehicle installs the part in.
+        role: String,
+        /// What differs: `id`, `version`, `kind` or `manifest_sha256`.
+        field: &'static str,
+        /// The pinned value.
+        expected: String,
+        /// The package's value.
+        actual: String,
+    },
     /// A package does not match the pin a vehicle holds on it.
     #[error("instrument pack {field} is {actual:?}; the vehicle pins {expected:?}")]
     PinMismatch {
