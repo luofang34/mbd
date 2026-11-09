@@ -272,6 +272,31 @@ pub enum InstrumentKindSpec {
         /// Time constant of the damped float, s; zero for none.
         transmitter_tau_s: f64,
     },
+    /// An instrument whose face and value-to-angle laws are the renderer's
+    /// own and whose reading comes from the vehicle's state directly. No
+    /// mechanism of it is modelled, so it shows the state without lag or
+    /// instrument error.
+    Direct {
+        /// Which instrument.
+        instrument: DirectInstrument,
+    },
+}
+
+/// An instrument a renderer draws from the vehicle's state directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DirectInstrument {
+    /// A gyro horizon: bank and pitch.
+    GyroHorizon,
+    /// A directional gyro: gyro heading.
+    DirectionalGyro,
+    /// A turn and bank indicator: yaw rate and the ball.
+    TurnAndBank,
+    /// A magnetic compass: magnetic heading.
+    MagneticCompass,
+    /// A clock: the time of day.
+    Clock,
+    /// An engine synchroscope: the second engine's shaft against the first's.
+    Synchroscope,
 }
 
 /// The colour of a dial marking, as the certification rules assign them.

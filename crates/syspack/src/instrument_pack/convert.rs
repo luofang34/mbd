@@ -6,8 +6,8 @@ use mbd_airdata::{
 };
 
 use super::{
-    DialUnitSpec, InstrumentKindSpec, InstrumentSpec, KollsmanSpec, NeedleSpec, PointerChannelSpec,
-    ScalePoint,
+    DialUnitSpec, DirectInstrument, InstrumentKindSpec, InstrumentSpec, KollsmanSpec, NeedleSpec,
+    PointerChannelSpec, ScalePoint,
 };
 use crate::SyspackError;
 
@@ -33,6 +33,8 @@ pub enum InstrumentMechanism {
     Thermometer(Box<Thermometer>),
     /// A fuel-quantity gauge, reading an empty tank.
     FuelQuantity(Box<FuelQuantityGauge>),
+    /// No mechanism: the instrument shows the vehicle's state directly.
+    Direct(DirectInstrument),
 }
 
 impl From<DialUnitSpec> for DialUnit {
@@ -274,5 +276,6 @@ fn build(
             let config = sensed(needle, *units, scale, *transmitter_tau_s)?;
             InstrumentMechanism::FuelQuantity(Box::new(FuelQuantityGauge::new(config, 0.0)?))
         }
+        InstrumentKindSpec::Direct { instrument } => InstrumentMechanism::Direct(*instrument),
     })
 }

@@ -140,3 +140,23 @@ fn rejects_pointers_a_case_cannot_hold() {
     altimeter["instruments"][1]["pointers"] = json!([pointer("a")]);
     assert!(parse(&altimeter).is_err());
 }
+
+/// An instrument drawn from the state directly validates, and its mechanism
+/// says so instead of modelling one.
+#[test]
+fn a_direct_instrument_has_no_modelled_mechanism() {
+    let horizon = json!({
+        "id": "gyro_horizon",
+        "name": "Sperry gyro horizon",
+        "bezel": "ThreeAndOneEighthInch",
+        "source": "system.attitude",
+        "needle": {"natural_frequency_rad_s": 8.0, "damping_ratio": 0.8},
+        "kind": {"Direct": {"instrument": "GyroHorizon"}},
+    });
+    let document = parse(&with(horizon)).unwrap();
+    let horizon = document.instrument("gyro_horizon").unwrap();
+    assert_eq!(
+        horizon.mechanism().unwrap(),
+        InstrumentMechanism::Direct(crate::DirectInstrument::GyroHorizon)
+    );
+}
