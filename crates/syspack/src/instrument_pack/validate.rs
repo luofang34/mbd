@@ -197,9 +197,21 @@ fn check_source(
 impl InstrumentPackDocument {
     /// Checks every instrument and the layout.
     pub(super) fn validate(&self) -> Result<(), SyspackError> {
+        let mut faces = BTreeSet::new();
+        for pin in &self.typefaces {
+            pin.validate()?;
+            if !faces.insert(pin.id.as_str()) {
+                return Err(SyspackError::TypefacePackShape {
+                    detail: "a pack pins each typeface once",
+                });
+            }
+        }
         let mut ids = BTreeSet::new();
         for spec in &self.instruments {
             check_instrument(spec)?;
+            if let Some(lettering) = &spec.lettering {
+                lettering.validate(spec, self)?;
+            }
             if !ids.insert(spec.id.as_str()) {
                 return Err(SyspackError::DuplicateInstrument {
                     id: spec.id.clone(),

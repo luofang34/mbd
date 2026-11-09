@@ -177,6 +177,13 @@ pub enum SyspackError {
         /// The rule broken.
         detail: &'static str,
     },
+    /// A typeface pack's manifest, or a pin of one, breaks the shape every
+    /// typeface pack has.
+    #[error("{detail}")]
+    TypefacePackShape {
+        /// The rule broken.
+        detail: &'static str,
+    },
     /// `instruments.json` is not a well-formed instrument document.
     #[error("instruments.json is malformed")]
     InstrumentsParse(#[source] serde_json::Error),

@@ -19,14 +19,16 @@ mod error;
 mod instrument_pack;
 mod manifest;
 mod source;
+mod typeface;
 mod verified;
 
 pub use error::SyspackError;
 pub use instrument_pack::{
-    BezelSize, DialFaceSpec, DialUnitSpec, FailureSpec, GraduationSpec, INSTRUMENTS_ASSET,
-    InstrumentKindSpec, InstrumentMechanism, InstrumentPackDocument, InstrumentSpec, KollsmanSpec,
-    LayoutSlotSpec, LegendSpec, MarkingColour, MarkingSpec, NeedleSpec, NumeralSpec,
-    PointerChannelSpec, PointerFaceSpec, PointerShapeSpec, ScalePoint, SourceBinding,
+    BezelSize, DialFaceSpec, DialUnitSpec, FaceStyleSpec, FailureSpec, GraduationSpec,
+    INSTRUMENTS_ASSET, InstrumentKindSpec, InstrumentMechanism, InstrumentPackDocument,
+    InstrumentSpec, KollsmanSpec, LayoutSlotSpec, LegendSpec, LetteringSpec, MarkingColour,
+    MarkingSpec, NeedleSpec, NumeralSpec, PointerChannelSpec, PointerFaceSpec, PointerShapeSpec,
+    ScalePoint, SourceBinding,
 };
 pub use manifest::{
     AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec,
@@ -36,4 +38,5 @@ pub use manifest::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;
 pub use source::{MANIFEST_FILE, MemoryPackageSource, PackageSource};
+pub use typeface::{TypefacePin, TypefaceSpec, UpstreamSource};
 pub use verified::{INITIAL_COMPONENT_TEMPERATURE_K, VerifiedSyspack, sha256_hex};

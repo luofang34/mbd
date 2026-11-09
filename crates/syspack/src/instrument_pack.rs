@@ -9,6 +9,7 @@ use crate::SyspackError;
 
 mod convert;
 mod dial;
+mod lettering;
 mod validate;
 
 pub use convert::InstrumentMechanism;
@@ -16,6 +17,7 @@ pub use dial::{
     DialFaceSpec, FailureSpec, GraduationSpec, LegendSpec, NumeralSpec, PointerFaceSpec,
     PointerShapeSpec,
 };
+pub use lettering::{FaceStyleSpec, LetteringSpec};
 pub use validate::SourceBinding;
 
 #[cfg(test)]
@@ -37,6 +39,9 @@ pub struct InstrumentPackDocument {
     pub instruments: Vec<InstrumentSpec>,
     /// Where each instrument sits on the panel by default.
     pub layout: Vec<LayoutSlotSpec>,
+    /// The typeface packs the dials are lettered in, each pinned once.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub typefaces: Vec<crate::TypefacePin>,
 }
 
 impl InstrumentPackDocument {
@@ -83,6 +88,10 @@ pub struct InstrumentSpec {
     /// temperature, or the right tank's pointer on a dual fuel gauge.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub pointers: Vec<PointerChannelSpec>,
+    /// The faces the dial is lettered in; the renderer's default face when
+    /// absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lettering: Option<LetteringSpec>,
 }
 
 /// One further pointer of an instrument.
