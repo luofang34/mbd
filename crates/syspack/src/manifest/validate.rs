@@ -36,7 +36,7 @@ pub(crate) fn check_asset_path(path: &str) -> Result<(), SyspackError> {
     Ok(())
 }
 
-fn is_sha256_hex(digest: &str) -> bool {
+pub(crate) fn is_sha256_hex(digest: &str) -> bool {
     digest.len() == SHA256_HEX_DIGITS && digest.chars().all(|c| c.is_ascii_hexdigit())
 }
 
@@ -47,7 +47,7 @@ pub(crate) fn is_slug(id: &str) -> bool {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
 }
 
-fn require(field: &'static str, value: &str) -> Result<(), SyspackError> {
+pub(crate) fn require(field: &'static str, value: &str) -> Result<(), SyspackError> {
     if value.is_empty() {
         return Err(SyspackError::EmptyField { field });
     }
@@ -73,6 +73,7 @@ impl SyspackManifest {
         self.validate_assets()?;
         self.validate_dynamics()?;
         self.validate_instrument_pack()?;
+        self.validate_parts()?;
         let keys = self.validate_components()?;
         self.validate_devices(&keys)
     }

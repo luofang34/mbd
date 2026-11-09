@@ -9,12 +9,28 @@ use crate::manifest::validate::check_asset_path;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DirectoryPackageSource {
     dir: PathBuf,
+    manifest: String,
 }
 
 impl DirectoryPackageSource {
     /// A package in `dir`. Nothing is read until the package is loaded.
     pub fn new(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            manifest: MANIFEST_FILE.to_owned(),
+        }
+    }
+
+    /// A variant of the package in `dir`: its manifest is the file at relative
+    /// path `manifest` instead of `syspack.json`, and its assets are `dir`'s.
+    /// Variants of one vehicle share their assets this way and differ only in
+    /// what their manifests declare and pin.
+    pub fn with_manifest(dir: impl Into<PathBuf>, manifest: &str) -> Result<Self, SyspackError> {
+        check_asset_path(manifest)?;
+        Ok(Self {
+            dir: dir.into(),
+            manifest: manifest.to_owned(),
+        })
     }
 
     /// Refuses a symlink anywhere under the package, which could point a
@@ -46,7 +62,7 @@ impl DirectoryPackageSource {
 
 impl PackageSource for DirectoryPackageSource {
     fn read_manifest_bytes(&self) -> Result<Vec<u8>, SyspackError> {
-        let path = self.dir.join(MANIFEST_FILE);
+        let path = self.dir.join(&self.manifest);
         std::fs::read(&path).map_err(|source| SyspackError::ManifestRead {
             path: path.display().to_string(),
             source,

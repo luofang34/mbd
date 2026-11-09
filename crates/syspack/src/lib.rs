@@ -10,6 +10,10 @@
 //! The crate knows no simulator, flight model or design tool. [`DynamicsSpec`]
 //! only names how a system moves, and a consumer builds what it needs from the
 //! verified data.
+//!
+//! Vehicles reuse other packages by pin: an instrument pack through
+//! [`InstrumentPackRef`], and parts such as engines and propellers through
+//! [`PartRef`], each naming the exact digest of the package's `syspack.json`.
 
 mod error;
 mod instrument_pack;
@@ -24,8 +28,9 @@ pub use instrument_pack::{
     MarkingSpec, NeedleSpec, ScalePoint, SourceBinding,
 };
 pub use manifest::{
-    AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec, InstrumentPackRef,
-    MountedDeviceSpec, SCHEMA_VERSION, SyspackManifest, SystemKind,
+    AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec,
+    ENGINE_DOCUMENT_ASSET, InstrumentPackRef, MountedDeviceSpec, PROPELLER_DOCUMENT_ASSET, PartRef,
+    SCHEMA_VERSION, SyspackManifest, SystemKind,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;

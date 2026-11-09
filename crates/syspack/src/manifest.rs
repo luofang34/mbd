@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::SyspackError;
 
+mod parts;
 pub(crate) mod validate;
 
 #[cfg(test)]
@@ -40,6 +41,34 @@ pub enum SystemKind {
     /// `instruments.json` asset, that vehicles pin with an
     /// [`InstrumentPackRef`]. It does not move.
     InstrumentPack,
+    /// A reusable engine, described by an `engine.json` asset, that vehicles
+    /// pin with a [`PartRef`]. It does not move on its own.
+    Engine,
+    /// A reusable propeller, described by a `propeller.json` asset, that
+    /// vehicles pin with a [`PartRef`]. It does not move on its own.
+    Propeller,
+}
+
+/// Document asset every engine part declares.
+pub const ENGINE_DOCUMENT_ASSET: &str = "engine.json";
+/// Document asset every propeller part declares.
+pub const PROPELLER_DOCUMENT_ASSET: &str = "propeller.json";
+
+impl SystemKind {
+    /// The document asset a part of this kind must declare; `None` for a kind
+    /// that is not a part. A new part kind adds its document here.
+    pub const fn part_document(self) -> Option<&'static str> {
+        match self {
+            Self::Engine => Some(ENGINE_DOCUMENT_ASSET),
+            Self::Propeller => Some(PROPELLER_DOCUMENT_ASSET),
+            _ => None,
+        }
+    }
+
+    /// Whether a vehicle pins packages of this kind as parts.
+    pub const fn is_part(self) -> bool {
+        self.part_document().is_some()
+    }
 }
 
 /// The expected content of one asset file.
@@ -264,6 +293,24 @@ pub struct InstrumentPackRef {
     pub manifest_sha256: String,
 }
 
+/// A vehicle's pin on a reusable part package (an engine, a propeller), in the
+/// role the vehicle installs it in. Like [`InstrumentPackRef`], naming the
+/// part's exact `syspack.json` digest makes the part as trusted as the
+/// vehicle's own assets.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PartRef {
+    /// Where the vehicle installs the part, a slug unique in the vehicle,
+    /// such as `engine0` or `propeller1`.
+    pub role: String,
+    /// The part's package id.
+    pub id: String,
+    /// The part's package version.
+    pub version: String,
+    /// SHA-256 of the part's `syspack.json` bytes, hexadecimal.
+    pub manifest_sha256: String,
+}
+
 /// The content of a system's `syspack.json`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -292,6 +339,9 @@ pub struct SyspackManifest {
     /// The shared instrument pack the system's cockpit uses, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instrument_pack: Option<InstrumentPackRef>,
+    /// The part packages the system is assembled from; none when omitted.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parts: Vec<PartRef>,
 }
 
 impl SyspackManifest {

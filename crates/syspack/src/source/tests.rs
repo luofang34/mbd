@@ -82,3 +82,19 @@ fn a_directory_refuses_symlinks_out_of_the_package() {
         );
     }
 }
+
+#[test]
+fn a_variant_manifest_shares_the_directory_assets() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("variants")).unwrap();
+    std::fs::write(dir.path().join(MANIFEST_FILE), b"{\"base\":1}").unwrap();
+    std::fs::write(dir.path().join("variants/b.json"), b"{\"variant\":1}").unwrap();
+    std::fs::write(dir.path().join("a.xml"), b"<a/>").unwrap();
+    let variant = DirectoryPackageSource::with_manifest(dir.path(), "variants/b.json").unwrap();
+    assert_eq!(variant.read_manifest_bytes().unwrap(), b"{\"variant\":1}");
+    assert_eq!(variant.read_asset_bytes("a.xml").unwrap(), b"<a/>");
+    assert!(matches!(
+        DirectoryPackageSource::with_manifest(dir.path(), "../b.json"),
+        Err(SyspackError::UnsafeAssetPath { .. })
+    ));
+}
