@@ -2,9 +2,12 @@ use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
 
-use crate::{MemoryPackageSource, PartRef, SyspackError, VerifiedSyspack, sha256_hex};
+use crate::part::fixtures::{HAMILTON_PROPELLER, KASEI_11_ENGINE};
+use crate::{
+    EngineSpec, MemoryPackageSource, PartRef, PitchSpec, SyspackError, VerifiedSyspack, sha256_hex,
+};
 
-const DOCUMENT: &[u8] = b"{\"ratings\": []}";
+const DOCUMENT: &[u8] = KASEI_11_ENGINE.as_bytes();
 
 fn part_manifest(kind: &str, document: &str) -> Value {
     json!({
@@ -103,5 +106,53 @@ fn a_package_that_is_not_a_part_is_refused() {
     assert!(matches!(
         VerifiedSyspack::load_part(&source, &pin),
         Err(SyspackError::PartPinMismatch { field: "kind", .. })
+    ));
+}
+
+fn propeller(id: &str) -> MemoryPackageSource {
+    let document = HAMILTON_PROPELLER.as_bytes();
+    let mut manifest = part_manifest("Propeller", "propeller.json");
+    manifest["id"] = json!(id);
+    manifest["assets"]["propeller.json"] =
+        json!({"sha256": sha256_hex(document), "size_bytes": document.len()});
+    let assets = BTreeMap::from([("propeller.json".to_owned(), document.to_vec())]);
+    MemoryPackageSource::new(manifest.to_string().into_bytes(), assets)
+}
+
+#[test]
+fn a_loaded_part_holds_its_typed_document() {
+    let (source, _) = engine();
+    let package = VerifiedSyspack::load(&source).unwrap();
+    let EngineSpec::Piston(piston) = &package.engine_document().unwrap().engine;
+    assert_eq!(piston.ratings.len(), 4);
+    assert!(package.propeller_document().is_none());
+
+    let package = VerifiedSyspack::load(&propeller("hamilton-standard-cs-134in-3b")).unwrap();
+    let document = package.propeller_document().unwrap();
+    assert!(matches!(document.pitch, PitchSpec::ConstantSpeed(_)));
+    assert!(package.engine_document().is_none());
+}
+
+#[test]
+fn a_part_whose_document_does_not_describe_it_does_not_load() {
+    assert!(matches!(
+        VerifiedSyspack::load(&propeller("hamilton-standard-cs-134in-4b")),
+        Err(SyspackError::PartDocumentId { document: "propeller.json", document_id, package_id })
+            if document_id == "hamilton-standard-cs-134in-3b"
+                && package_id == "hamilton-standard-cs-134in-4b"
+    ));
+
+    let unparsed = b"{\"ratings\": []}";
+    let mut manifest = part_manifest("Engine", "engine.json");
+    manifest["assets"]["engine.json"] =
+        json!({"sha256": sha256_hex(unparsed), "size_bytes": unparsed.len()});
+    let assets = BTreeMap::from([("engine.json".to_owned(), unparsed.to_vec())]);
+    let source = MemoryPackageSource::new(manifest.to_string().into_bytes(), assets);
+    assert!(matches!(
+        VerifiedSyspack::load(&source),
+        Err(SyspackError::PartDocumentParse {
+            document: "engine.json",
+            ..
+        })
     ));
 }

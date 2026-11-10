@@ -273,6 +273,7 @@ dependencies = [
  "glam",
  "mbd-airdata",
  "mbd-core",
+ "mbd-provenance",
  "serde",
  "serde_json",
  "sha2",

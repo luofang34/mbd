@@ -1,0 +1,48 @@
+{
+  "id": "hamilton-standard-cs-134in-3b",
+  "name": "Hamilton Standard-type constant-speed propeller, 3 blades, 11 ft 2 in",
+  "sources": {
+    "ja-wikipedia-g4m": {
+      "document": "JA Wikipedia, Type 1 land-based attack aircraft: the Model 22 changed the propeller from 3 to 4 blades",
+      "tier": "secondary",
+      "url": "https://ja.wikipedia.org/wiki/一式陸上攻撃機"
+    },
+    "navy-manual-1941": {
+      "document": "Naval Air Headquarters, Kasei Model 10-series engine handling manual (Kasei 11 to 15), Jan 1941, as tabulated by JA Wikipedia (Kasei engine)",
+      "tier": "secondary"
+    },
+    "navy-test-table": {
+      "document": "IJN test results of G4M1 aircraft No. 1 and No. 241 as tabulated by WarbirdPerformanceBlog: propeller row",
+      "tier": "secondary",
+      "url": "https://warbirdperformance.livedoor.blog/archives/6848816.html"
+    },
+    "taic-1-betty-22": {
+      "document": "TAIC Manual No. 1, Dec 1944, Betty 22 page: 4-blade propeller, 11.16 ft",
+      "tier": "test_report"
+    }
+  },
+  "blades": { "value": 3, "basis": { "sourced": ["ja-wikipedia-g4m"] } },
+  "diameter_m": {
+    "value": 3.404,
+    "basis": { "estimated": { "method": "the Model 22's 11.16 ft four-blade propeller (taic-1-betty-22) on the same engine family and nacelle clearance, taken as 11 ft 2 in" } },
+    "note": "not found for the Model 11"
+  },
+  "pitch": {
+    "constant_speed": {
+      "blade_angle_range_deg": { "value": [16.0, 36.0], "basis": { "estimated": { "method": "a 20 deg range, typical of the counterweight hub, placed over the static and maximum-speed operating points" } } },
+      "governor_speed_range_rpm": { "value": [1600.0, 2450.0], "basis": { "estimated": { "method": "lever range up to the Kasei take-off speed" } } },
+      "feathering": { "value": false, "basis": { "assumed": { "reason": "not documented for the Model 11" } } }
+    }
+  },
+  "reduction_gear": { "value": 0.684, "basis": { "sourced": ["navy-manual-1941"] } },
+  "map": {
+    "basis": { "estimated": { "method": "blade-element maps of a generic Clark-Y-family blade; planform and sections are not sourced" } },
+    "inputs": {
+      "blades": 3, "diameter_in": 134.0, "hub_fraction": 0.18, "design_advance_ratio": 1.6,
+      "chord_over_diameter": { "base": 0.055, "bulge": 0.03, "tip_taper": 0.02 },
+      "thickness_over_chord": { "root": 0.3, "tip": 0.07 }
+    },
+    "note": "tip-Mach loss tables are those of another aircraft's thin metal blades"
+  },
+  "notes": ["The licence-build attribution appears only in EN Wikipedia."]
+}

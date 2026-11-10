@@ -4,7 +4,8 @@ use mbd_core::{ComponentId, ComponentTree};
 use sha2::{Digest, Sha256};
 
 use crate::{
-    DynamicsSpec, InstrumentPackDocument, PackageSource, SyspackError, SyspackManifest, SystemKind,
+    DynamicsSpec, InstrumentPackDocument, PackageSource, PartDocument, SyspackError,
+    SyspackManifest, SystemKind,
 };
 
 mod dynamics;
@@ -28,6 +29,7 @@ pub struct VerifiedSyspack {
     component_ids: BTreeMap<String, ComponentId>,
     manifest_sha256: String,
     instrument_pack: Option<InstrumentPackDocument>,
+    part: Option<PartDocument>,
 }
 
 /// SHA-256 of `bytes` as lowercase hexadecimal: the digest a vehicle pins an
@@ -80,6 +82,7 @@ impl VerifiedSyspack {
         } else {
             None
         };
+        let part = parts::parse_document(&manifest, &assets)?;
         let package = Self {
             manifest,
             assets,
@@ -87,6 +90,7 @@ impl VerifiedSyspack {
             component_ids,
             manifest_sha256: sha256_hex(&bytes),
             instrument_pack,
+            part,
         };
         if matches!(
             package.manifest.dynamics,
