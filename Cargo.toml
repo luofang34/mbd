@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
-members = ["crates/mbd-airdata", "crates/mbd-core", "crates/syspack"]
+members = [
+    "crates/mbd-airdata",
+    "crates/mbd-core",
+    "crates/mbd-provenance",
+    "crates/syspack",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +17,7 @@ repository = "https://github.com/luofang34/mbd"
 [workspace.dependencies]
 mbd-airdata = { path = "crates/mbd-airdata" }
 mbd-core = { path = "crates/mbd-core" }
+mbd-provenance = { path = "crates/mbd-provenance" }
 syspack = { path = "crates/syspack" }
 
 glam = { version = "0.33", default-features = false, features = ["f64", "libm"] }

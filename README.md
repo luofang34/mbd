@@ -7,6 +7,7 @@ dependency on either.
 |---|---|
 | `mbd-airdata` | `no_std` standard atmosphere, pitot-static laws, position error, and deterministic analog instrument mechanisms (airspeed, altimeter, VSI, gauges) |
 | `mbd-core` | `no_std` contracts: live component tree, mounting-site physics, layered ports, pluggable aerodynamics |
+| `mbd-provenance` | Where a design value comes from: a table of cited sources, and values that state whether they were read from one, derived, fitted, estimated or assumed |
 | `syspack` | Universal system packages: the `syspack.json` schema, SHA-256 asset verification, and a fail-closed loader for vehicles and stationary systems alike |
 
 A system package is a folder holding a `syspack.json` manifest and the asset
