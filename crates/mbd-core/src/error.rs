@@ -62,6 +62,15 @@ pub enum MbdError {
         /// Offending value.
         value: f64,
     },
+    /// A station frame, or a mass placed in one, has a value that is
+    /// non-finite or outside what is physical.
+    #[error("station frame {field} is invalid: {value}")]
+    InvalidStationFrame {
+        /// Offending field.
+        field: &'static str,
+        /// Offending value.
+        value: f64,
+    },
     /// A value does not fit the bits of the field it is packed into.
     #[error("{field} value {value} is outside {min}..={max}")]
     FieldOutOfRange {

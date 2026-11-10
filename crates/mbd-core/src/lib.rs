@@ -1,6 +1,6 @@
 //! Model-based design contracts shared by simulators and design tools: the live component and frame tree with its mass properties,
-//! the physics at each mounting site, ports at three levels of fidelity, and
-//! pluggable aerodynamics.
+//! the physics at each mounting site, ports at three levels of fidelity,
+//! pluggable aerodynamics, and the station frames positions are stated in.
 //!
 //! The crate has no I/O and no dependency on a simulation scheduler, so a
 //! design tool can evaluate the same system a simulation block steps.
@@ -22,6 +22,7 @@ mod environment;
 mod error;
 mod math;
 mod ports;
+mod station;
 
 pub use aero::{
     AeroFlowState, AeroModel, AeroWrench, AmbientFlow, BluntBodyCapsuleAero,
@@ -38,3 +39,4 @@ pub use ports::{
     Arinc429BnrTransducer, Arinc429Fields, DigitalBusFrame, ElectricalPinState, EngineeringValue,
     ResolverTransducer, Transducer,
 };
+pub use station::{METRES_PER_INCH, MassStation, StationAxes, StationFrame};
