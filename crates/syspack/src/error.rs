@@ -242,6 +242,44 @@ pub enum SyspackError {
         /// The document asset it lacks.
         document: &'static str,
     },
+    /// A part's document is not valid JSON for its schema.
+    #[error("{document} does not parse")]
+    PartDocumentParse {
+        /// The document asset.
+        document: &'static str,
+        /// Decoder error.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A value in a part's document does not state a checkable origin.
+    #[error("{document}: a value's origin is not acceptable")]
+    PartProvenance {
+        /// The document asset.
+        document: &'static str,
+        /// What was wrong with which value.
+        #[source]
+        source: mbd_provenance::ProvenanceError,
+    },
+    /// A part's document holds a value that cannot describe a part.
+    #[error("{document}: {field}: {detail}")]
+    InvalidPartDocument {
+        /// The document asset.
+        document: &'static str,
+        /// The offending field.
+        field: String,
+        /// What was wrong.
+        detail: String,
+    },
+    /// A part's document describes another package.
+    #[error("{document} describes {document_id:?}, but the package is {package_id:?}")]
+    PartDocumentId {
+        /// The document asset.
+        document: &'static str,
+        /// The id the document states.
+        document_id: String,
+        /// The package's id.
+        package_id: String,
+    },
     /// A part role is not a slug.
     #[error("part role {role:?} must be a non-empty lowercase slug")]
     InvalidPartRole {

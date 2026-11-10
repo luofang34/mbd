@@ -11,8 +11,8 @@ mod tests;
 pub struct Sourced<T> {
     /// The value, in `unit`.
     pub value: T,
-    /// The unit as the source states it; omitted for a dimensionless value or
-    /// one that is not a quantity.
+    /// The unit the value is in; omitted for a dimensionless value, one that
+    /// is not a quantity, or one whose unit the holding document fixes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
     /// How the value was arrived at.

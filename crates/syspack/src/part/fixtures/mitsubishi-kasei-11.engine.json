@@ -1,0 +1,78 @@
+{
+  "id": "mitsubishi-kasei-11",
+  "name": "Mitsubishi Kasei 11 (MK4A-11)",
+  "sources": {
+    "navy-manual-1941": {
+      "document": "Naval Air Headquarters, Kasei Model 10-series engine handling manual (Kasei 11 to 15), Jan 1941, as tabulated by JA Wikipedia (Kasei engine) citing Sakagami 2021 pp.459-460",
+      "tier": "secondary",
+      "url": "https://ja.wikipedia.org/wiki/火星_(エンジン)",
+      "pages": "specification table"
+    },
+    "taic-1": {
+      "document": "TAIC Manual No. 1, Japanese Aircraft Performance and Characteristics, Technical Air Intelligence Center, Dec 1944",
+      "tier": "test_report",
+      "url": "https://archive.org/details/japanese-aircraft-performance-characteristics-taic-manual",
+      "pages": "engine sheets pp.861-862; p.850 for which ratings are from captured documents"
+    }
+  },
+  "engine": {
+    "piston": {
+      "layout": { "value": "14-cylinder two-row air-cooled radial, four-stroke", "basis": { "sourced": ["navy-manual-1941"] } },
+      "cylinders": { "value": 14, "basis": { "sourced": ["navy-manual-1941"] } },
+      "bore_m": { "value": 0.150, "basis": { "sourced": ["navy-manual-1941"] }, "note": "150 mm" },
+      "stroke_m": { "value": 0.170, "basis": { "sourced": ["navy-manual-1941"] }, "note": "170 mm" },
+      "displacement_m3": { "value": 0.0421, "basis": { "sourced": ["navy-manual-1941"] }, "note": "42.1 L" },
+      "compression_ratio": { "value": 6.5, "basis": { "sourced": ["navy-manual-1941"] } },
+      "dry_mass_kg": { "value": 725.0, "basis": { "sourced": ["navy-manual-1941"] }, "note": "TAIC: 1,595 lb without starter and accessories" },
+      "reduction_gear": { "value": 0.684, "basis": { "sourced": ["navy-manual-1941"] }, "note": "Kasei 12 is 0.500" },
+      "induction": {
+        "description": { "value": "single-stage, two-speed, gear-driven supercharger", "basis": { "sourced": ["navy-manual-1941"] } },
+        "supercharger_gear_ratios": { "value": [7.4, 9.118], "basis": { "sourced": ["navy-manual-1941"] } },
+        "impeller_diameter_m": { "value": 0.280, "basis": { "sourced": ["navy-manual-1941"] }, "note": "280 mm" },
+        "carburettor": { "value": "4-barrel downdraft float carburettor", "basis": { "sourced": ["navy-manual-1941"] }, "note": "mixture control not described" }
+      },
+      "fuel": { "value": "92 octane", "basis": { "sourced": ["navy-manual-1941"] } },
+      "ratings": [
+        {
+          "name": "take-off (1 min)",
+          "power_w": 1125313.0, "speed_rpm": 2450.0, "manifold_pressure_pa": 134656.0,
+          "altitude_m": 0.0, "supercharger_speed": 1, "time_limit_s": 60.0,
+          "basis": { "sourced": ["navy-manual-1941", "taic-1"] },
+          "note": "1,530 PS at +250 mmHg; TAIC 1,505 hp"
+        },
+        {
+          "name": "rated, first speed",
+          "power_w": 1088538.0, "speed_rpm": 2350.0, "manifold_pressure_pa": 125323.0,
+          "altitude_m": 2200.0, "supercharger_speed": 1,
+          "basis": { "sourced": ["navy-manual-1941", "taic-1"] },
+          "note": "1,480 PS at +180 mmHg, 2,200 m; TAIC 1,460 hp at 7,200 ft"
+        },
+        {
+          "name": "rated, second speed",
+          "power_w": 1014988.0, "speed_rpm": 2350.0, "manifold_pressure_pa": 125323.0,
+          "altitude_m": 4100.0, "supercharger_speed": 2,
+          "basis": { "sourced": ["navy-manual-1941", "taic-1"] },
+          "note": "1,380 PS at +180 mmHg, 4,100 m; TAIC 1,360 hp at 13,500 ft"
+        },
+        {
+          "name": "military, sea level",
+          "power_w": 999238.0, "speed_rpm": 2350.0, "manifold_pressure_pa": 125323.0,
+          "altitude_m": 0.0, "supercharger_speed": 1,
+          "basis": { "sourced": ["taic-1"] },
+          "note": "1,340 hp; TAIC only"
+        }
+      ]
+    }
+  },
+  "models": {
+    "jsbsim": {
+      "bsfc_indicated": { "value": 0.3337, "unit": "lb/hp/hr", "basis": { "fitted": { "to": "the rated first-speed power" } } },
+      "compressor_efficiency": { "value": 0.56, "basis": { "fitted": { "to": "the fall from the first-speed to the second-speed rating" } } },
+      "volumetric_efficiency": { "value": 0.85, "basis": { "estimated": { "method": "typical of a supercharged radial of the period" } } },
+      "supercharger_change_altitude": { "value": 3230.0, "unit": "m", "basis": { "assumed": { "reason": "not in the sources; the first-speed rated altitude plus 1,000 ft" } } }
+    }
+  },
+  "notes": [
+    "Sekai no Kessakuki No.60 p.42 and EN Wikipedia give +270 mmHg take-off and 1,410 PS at 2,000 m; rejected for the Navy manual, which TAIC corroborates independently."
+  ]
+}

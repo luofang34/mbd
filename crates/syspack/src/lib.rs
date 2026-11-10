@@ -18,6 +18,7 @@
 mod error;
 mod instrument_pack;
 mod manifest;
+mod part;
 mod source;
 mod typeface;
 mod verified;
@@ -34,6 +35,10 @@ pub use manifest::{
     AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec,
     ENGINE_DOCUMENT_ASSET, InstrumentPackRef, MountedDeviceSpec, PROPELLER_DOCUMENT_ASSET, PartRef,
     SCHEMA_VERSION, SyspackManifest, SystemKind,
+};
+pub use part::{
+    ConstantSpeedSpec, EngineDocument, EngineRating, EngineSpec, InductionSpec, ModelParameters,
+    PartDocument, PistonEngineSpec, PitchSpec, PropellerDocument, PropellerMapSpec,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;

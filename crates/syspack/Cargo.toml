@@ -14,6 +14,7 @@ workspace = true
 glam = { workspace = true }
 mbd-airdata = { workspace = true }
 mbd-core = { workspace = true }
+mbd-provenance = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
