@@ -39,7 +39,7 @@ pub use gas::{
     MAX_GAS_SPECIES, SUTTON_GRAVES_K_EARTH, SUTTON_GRAVES_K_MARS, SpeciesFraction,
     UNIVERSAL_GAS_CONSTANT_J_MOL_K,
 };
-pub use joint::{JointActuatorSpec, JointKind, JointSpec, JointState};
+pub use joint::{JointActuatorSpec, JointKind, JointSpec, JointState, JointStopSpec};
 pub use ports::{
     Arinc429BnrTransducer, Arinc429Fields, DigitalBusFrame, ElectricalPinState, EngineeringValue,
     ResolverTransducer, Transducer,

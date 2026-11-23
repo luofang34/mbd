@@ -14,7 +14,7 @@ pub(crate) mod validate;
 mod tests;
 
 pub use aero::{AeroElementKindRecord, AeroElementRecord};
-pub use joints::JointRecord;
+pub use joints::{JointRecord, JointStopRecord};
 pub use subsystems::{
     AbepThrusterRecord, AirbreathingEngineRecord, AirbreathingKindRecord, AoCoatingRecord,
     BatteryRecord, ElectricThrusterRecord, FeedRegimeRecord, FluidSpeciesRecord,

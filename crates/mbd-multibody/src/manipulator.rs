@@ -229,9 +229,14 @@ impl ManipulatorChain {
                 JointKind::Prismatic { min_m, max_m, .. } => (min_m, max_m),
                 _ => (0.0, 0.0),
             };
-            let span = (max - min).max(1e-6);
+            // A joint with no travel has no centre to pull toward.
+            let span = max - min;
             let mid = 0.5 * (min + max);
-            v.push(gain * (mid - q) / (0.5 * span));
+            v.push(if span > 0.0 {
+                gain * (mid - q) / (0.5 * span)
+            } else {
+                0.0
+            });
         }
         Ok(v)
     }

@@ -34,12 +34,13 @@ pub use manifest::{
     AbepThrusterRecord, AeroElementKindRecord, AeroElementRecord, AirbreathingEngineRecord,
     AirbreathingKindRecord, AoCoatingRecord, AssetDigest, BatteryRecord, ComponentRecord,
     ControlsSpec, DeviceKindSpec, DynamicsSpec, ENGINE_DOCUMENT_ASSET, ElectricThrusterRecord,
-    FeedRegimeRecord, FluidSpeciesRecord, InstrumentPackRef, JointRecord, LiquidRocketRecord,
-    MIN_SCHEMA_VERSION, ManipulatorRecord, MechanismKindRecord, MechanismRecord, MountedDeviceSpec,
-    PROPELLER_DOCUMENT_ASSET, PartRef, PowerGeneratorKindRecord, PowerGeneratorRecord,
-    SCHEMA_VERSION, SloshModeRecord, SolarArrayRecord, SolidMotorRecord, SubsystemManifest,
-    SyspackManifest, SystemKind, TankGeometryRecord, TankRecord, ThermalLinkRecord,
-    ThermalNodeRecord, TpsShieldRecord, TransferLineRecord, WheelRecord,
+    FeedRegimeRecord, FluidSpeciesRecord, InstrumentPackRef, JointRecord, JointStopRecord,
+    LiquidRocketRecord, MIN_SCHEMA_VERSION, ManipulatorRecord, MechanismKindRecord,
+    MechanismRecord, MountedDeviceSpec, PROPELLER_DOCUMENT_ASSET, PartRef,
+    PowerGeneratorKindRecord, PowerGeneratorRecord, SCHEMA_VERSION, SloshModeRecord,
+    SolarArrayRecord, SolidMotorRecord, SubsystemManifest, SyspackManifest, SystemKind,
+    TankGeometryRecord, TankRecord, ThermalLinkRecord, ThermalNodeRecord, TpsShieldRecord,
+    TransferLineRecord, WheelRecord,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;

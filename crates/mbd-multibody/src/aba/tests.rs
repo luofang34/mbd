@@ -9,6 +9,7 @@ use super::*;
 mod compliant_joint;
 mod convergence;
 mod double_pendulum;
+mod effort_sources;
 mod free_floating;
 mod joint_drives;
 mod joint_stops;
@@ -19,6 +20,7 @@ mod scale_invariance;
 mod small_links;
 mod spherical_joint;
 mod spherical_pendulum;
+mod stop_response;
 
 fn part_spec(
     name: &str,

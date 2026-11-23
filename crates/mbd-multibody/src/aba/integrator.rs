@@ -2,11 +2,10 @@ use alloc::vec::Vec;
 
 use glam::{DQuat, DVec3};
 use mbd_core::{
-    ComponentId, ComponentState, ComponentTree, DynamicMassContribution, JointKind, JointState,
-    WrenchAtSite,
+    ComponentId, ComponentState, ComponentTree, DynamicMassContribution, JointState, WrenchAtSite,
 };
 
-use super::{FloatingBaseState, JointDriveInput, MultiBodyAccel, MultiBodyDynamics};
+use super::{FloatingBaseState, JointDriveInput, MultiBodyAccel, MultiBodyDynamics, StageForces};
 use crate::MultibodyError;
 
 #[derive(Clone)]
@@ -75,6 +74,31 @@ where
         f64,
     ) -> Result<(DVec3, Vec<JointDriveInput>, Vec<WrenchAtSite>), E>,
 {
+    step_rk4_with_loads(tree, dynamic_masses, base_state, dt_s, |t, b, dt| {
+        eval_forces(t, b, dt).map(|(gravity_world_m_s2, joint_drives, external_wrenches)| {
+            StageForces {
+                gravity_world_m_s2,
+                joint_drives,
+                joint_loads: Vec::new(),
+                external_wrenches,
+            }
+        })
+    })
+}
+
+/// [`step_rk4_with_forces`] whose stage callback also returns unlimited
+/// joint loads (constraints, mechanism springs) alongside actuator commands.
+pub fn step_rk4_with_loads<E, F>(
+    tree: &mut ComponentTree,
+    dynamic_masses: &[DynamicMassContribution],
+    base_state: &FloatingBaseState,
+    dt_s: f64,
+    mut eval_forces: F,
+) -> Result<FloatingBaseState, E>
+where
+    E: From<MultibodyError>,
+    F: FnMut(&ComponentTree, &FloatingBaseState, f64) -> Result<StageForces, E>,
+{
     if !dt_s.is_finite() || dt_s < 0.0 {
         return Err(E::from(MultibodyError::InvalidParameter {
             field: "dt_s",
@@ -105,22 +129,19 @@ fn integrate_rk4_stages<E, F>(
 ) -> Result<FloatingBaseState, E>
 where
     E: From<MultibodyError>,
-    F: FnMut(
-        &ComponentTree,
-        &FloatingBaseState,
-        f64,
-    ) -> Result<(DVec3, Vec<JointDriveInput>, Vec<WrenchAtSite>), E>,
+    F: FnMut(&ComponentTree, &FloatingBaseState, f64) -> Result<StageForces, E>,
 {
     let mut eval_stage = |y: &PhaseState, stage_dt_s: f64| -> Result<PhaseDeriv, E> {
         apply_phase(tree, y)?;
-        let (gravity_world_m_s2, drives, wrenches) = eval_forces(tree, &y.base, stage_dt_s)?;
-        let accel = MultiBodyDynamics::forward_dynamics(
+        let forces = eval_forces(tree, &y.base, stage_dt_s)?;
+        let accel = MultiBodyDynamics::forward_dynamics_with_loads(
             tree,
             dynamic_masses,
             &y.base,
-            gravity_world_m_s2,
-            &drives,
-            &wrenches,
+            forces.gravity_world_m_s2,
+            &forces.joint_drives,
+            &forces.joint_loads,
+            &forces.external_wrenches,
         )?;
         Ok(build_deriv(tree, &y.base, &accel))
     };
@@ -264,6 +285,5 @@ fn combine_rk4(
                 (d1.omega_dot + d2.omega_dot * 2.0 + d3.omega_dot * 2.0 + d4.omega_dot) * w;
         }
     }
-    let _ = JointKind::Fixed;
     PhaseState { base, joint_states }
 }

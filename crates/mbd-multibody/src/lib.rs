@@ -18,8 +18,9 @@ mod spatial;
 mod wheel;
 
 pub use aba::{
-    FloatingBaseState, JointAccel, JointDriveInput, MultiBodyAccel, MultiBodyDynamics,
-    SystemMomentum, step_rk4, step_rk4_with_forces,
+    FloatingBaseState, JointAccel, JointDriveInput, JointLoadInput, MultiBodyAccel,
+    MultiBodyDynamics, StageForces, SystemMomentum, step_rk4, step_rk4_with_forces,
+    step_rk4_with_loads,
 };
 pub use contact::{
     ContactPointSpec, ContactPointState, ContactStepOutput, PinnedSurfaceRest, SurfaceMedium,

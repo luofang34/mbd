@@ -323,7 +323,7 @@ fn invert_edge(
                     min_m: -max_m,
                     max_m: -min_m,
                 },
-                actuator: child_spec.joint.actuator,
+                ..child_spec.joint
             },
             JointState::prismatic(-child_state.joint.q_scalar, -child_state.joint.q_vel_scalar),
         )),
@@ -343,7 +343,7 @@ fn invert_edge(
                     min_rad: -max_rad,
                     max_rad: -min_rad,
                 },
-                actuator: child_spec.joint.actuator,
+                ..child_spec.joint
             },
             JointState::revolute(-child_state.joint.q_scalar, -child_state.joint.q_vel_scalar),
         )),
@@ -361,7 +361,7 @@ fn invert_edge(
                     kind: JointKind::Spherical {
                         cone_half_angle_rad,
                     },
-                    actuator: child_spec.joint.actuator,
+                    ..child_spec.joint
                 },
                 JointState::spherical(
                     (r * q_conj * r_conj).normalize(),

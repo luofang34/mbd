@@ -2,8 +2,11 @@ use glam::{DQuat, DVec3};
 
 use crate::MbdError;
 
+mod stop;
 #[cfg(test)]
 mod tests;
+
+pub use stop::JointStopSpec;
 
 /// Relative tolerance around unit length for joint axes and quaternions.
 const UNIT_TOLERANCE: f64 = 1e-6;
@@ -74,6 +77,8 @@ pub struct JointSpec {
     pub kind: JointKind,
     /// Optional motor/servo characteristics.
     pub actuator: Option<JointActuatorSpec>,
+    /// Travel-stop response at the joint's limits.
+    pub stop: JointStopSpec,
 }
 
 /// Runtime generalized position and velocity of one component joint.
@@ -105,6 +110,7 @@ impl JointSpec {
     pub const FIXED: Self = Self {
         kind: JointKind::Fixed,
         actuator: None,
+        stop: JointStopSpec::DEFAULT,
     };
 
     /// Creates a 1-DoF revolute joint with normalized axis checks.
@@ -116,6 +122,7 @@ impl JointSpec {
                 max_rad,
             },
             actuator: None,
+            stop: JointStopSpec::DEFAULT,
         }
     }
 
@@ -124,6 +131,7 @@ impl JointSpec {
         Self {
             kind: JointKind::Prismatic { axis, min_m, max_m },
             actuator: None,
+            stop: JointStopSpec::DEFAULT,
         }
     }
 
@@ -134,6 +142,7 @@ impl JointSpec {
                 cone_half_angle_rad,
             },
             actuator: None,
+            stop: JointStopSpec::DEFAULT,
         }
     }
 
@@ -152,12 +161,19 @@ impl JointSpec {
                 angular_damping_nm_s_rad,
             },
             actuator: None,
+            stop: JointStopSpec::DEFAULT,
         }
     }
 
     /// Attaches an actuator specification to this joint.
     pub const fn with_actuator(mut self, actuator: JointActuatorSpec) -> Self {
         self.actuator = Some(actuator);
+        self
+    }
+
+    /// Replaces the travel-stop response.
+    pub const fn with_stop(mut self, stop: JointStopSpec) -> Self {
+        self.stop = stop;
         self
     }
 
@@ -174,6 +190,7 @@ impl JointSpec {
     /// Validates axes, limits, and actuator parameters.
     pub fn validate(&self, component_name: &str) -> Result<(), MbdError> {
         self.kind.validate(component_name)?;
+        stop::validate_stop(component_name, &self.stop)?;
         if let Some(actuator) = self.actuator {
             actuator.validate(component_name)?;
         }
@@ -351,8 +368,8 @@ impl JointState {
         }
     }
 
-    /// Validates finiteness and unit quaternion for `kind`.
-    pub fn validate(&self, component_name: &str, kind: &JointKind) -> Result<(), MbdError> {
+    /// Validates finiteness and the unit rotation quaternion.
+    pub fn validate(&self, component_name: &str) -> Result<(), MbdError> {
         let scalars = [
             ("joint_state.q_scalar", self.q_scalar),
             ("joint_state.q_vel_scalar", self.q_vel_scalar),
@@ -380,7 +397,6 @@ impl JointState {
                 ));
             }
         }
-        let _ = kind;
         if !self.rotation.is_finite() || (self.rotation.length_squared() - 1.0).abs() > 1e-9 {
             return Err(invalid_joint(
                 component_name,

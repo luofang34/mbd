@@ -139,7 +139,7 @@ pub fn evaluate_contact_point(
     let mu_d = surface.mu_dynamic_override.unwrap_or(spec.mu_dynamic);
     let f_t_mag = f_t_trial.length();
     let max_static = mu_s * fn_mag;
-    let (f_t, sticking) = if f_t_mag <= max_static || f_t_mag <= 1e-12 {
+    let (f_t, sticking) = if f_t_mag <= max_static || f_t_mag == 0.0 {
         state.tangent_deflection_world_m = z_tan;
         (f_t_trial, true)
     } else {

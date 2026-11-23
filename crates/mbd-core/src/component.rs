@@ -162,7 +162,7 @@ impl ComponentState {
         }
         check_nonnegative(name, "fluid_mass_kg", self.fluid_mass_kg)?;
         check_nonnegative(name, "payload_mass_kg", self.payload_mass_kg)?;
-        self.joint.validate(name, &spec.joint.kind)?;
+        self.joint.validate(name)?;
         if self.temperature_k.is_finite() && self.temperature_k > 0.0 {
             return Ok(());
         }

@@ -7,7 +7,7 @@ use mbd_core::{
 };
 
 use super::*;
-use crate::aba::{FloatingBaseState, MultiBodyDynamics, step_rk4};
+use crate::aba::{FloatingBaseState, MultiBodyDynamics, StageForces, step_rk4_with_loads};
 
 fn m_spec(
     name: &str,
@@ -156,8 +156,19 @@ fn rail_slide_release_ejects_seat_and_conserves_momentum() {
             ready = true;
             break;
         }
-        let drives: Vec<_> = out.drive.into_iter().collect();
-        rbase = step_rk4(&mut rtree, &[], &rbase, DVec3::ZERO, &drives, &[], 0.01).unwrap();
+        let forces = StageForces {
+            joint_drives: out.drive.into_iter().collect(),
+            joint_loads: out.load.into_iter().collect(),
+            ..StageForces::default()
+        };
+        rbase = step_rk4_with_loads::<crate::MultibodyError, _>(
+            &mut rtree,
+            &[],
+            &rbase,
+            0.01,
+            |_, _, _| Ok(forces.clone()),
+        )
+        .unwrap();
     }
     assert!(ready);
     let ejected = release_from_rail(&rail, &mut rst, &rtree, &[], &rbase).unwrap();

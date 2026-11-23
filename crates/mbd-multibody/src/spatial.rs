@@ -2,6 +2,8 @@ use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 
 use glam::{DMat3, DQuat, DVec3};
 
+pub(crate) mod ldlt;
+
 #[cfg(test)]
 mod tests;
 
@@ -349,34 +351,22 @@ impl SpatialMat6 {
         }
     }
 
-    /// Exact 6×6 linear solve `self * x = rhs` via 3×3 Schur complement.
+    /// Solves `self * x = rhs` for a symmetric positive-definite spatial
+    /// inertia by block LDLᵀ; `None` when a pivot falls below a fixed
+    /// rounding-level fraction of the diagonal entry it came from. Pivot and
+    /// diagonal share a unit, so the test holds at any body scale.
     pub fn solve(&self, rhs: SpatialForce) -> Option<SpatialMotion> {
-        let det_ll = self.ll.determinant();
-        let det_aa = self.aa.determinant();
-        if !det_ll.is_finite() || !det_aa.is_finite() {
-            return None;
-        }
-        if det_ll.abs() >= 1e-24 {
-            let ll_inv = self.ll.inverse();
-            let schur = self.aa - self.al * ll_inv * self.la;
-            if schur.determinant().abs() <= 1e-24 || !schur.determinant().is_finite() {
-                return None;
-            }
-            let ang = schur.inverse() * (rhs.torque - self.al * (ll_inv * rhs.force));
-            let lin = ll_inv * (rhs.force - self.la * ang);
-            return Some(SpatialMotion { ang, lin });
-        }
-        if det_aa.abs() >= 1e-24 {
-            let aa_inv = self.aa.inverse();
-            let schur = self.ll - self.la * aa_inv * self.al;
-            if schur.determinant().abs() <= 1e-24 || !schur.determinant().is_finite() {
-                return None;
-            }
-            let lin = schur.inverse() * (rhs.force - self.la * (aa_inv * rhs.torque));
-            let ang = aa_inv * (rhs.torque - self.al * lin);
-            return Some(SpatialMotion { ang, lin });
-        }
-        None
+        self.factor().map(|f| f.solve(rhs))
+    }
+
+    /// Block LDLᵀ factorisation reused across several right-hand sides.
+    pub(crate) fn factor(&self) -> Option<ldlt::SpatialLdlt> {
+        ldlt::SpatialLdlt::new(self)
+    }
+
+    /// True when every entry is exactly zero: a subtree with no mass at all.
+    pub(crate) fn is_exactly_zero(&self) -> bool {
+        *self == Self::ZERO
     }
 }
 

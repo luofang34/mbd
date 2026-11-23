@@ -1,8 +1,11 @@
 use glam::DVec3;
-use mbd_core::{JointActuatorSpec, JointSpec, JointState};
+use mbd_core::{JointActuatorSpec, JointSpec, JointState, JointStopSpec};
 use serde::{Deserialize, Serialize};
 
 use crate::SyspackError;
+
+#[cfg(test)]
+mod tests;
 
 /// Serialized kinematic joint specification attached to a [`super::ComponentRecord`].
 ///
@@ -29,6 +32,9 @@ pub enum JointRecord {
         /// Initial joint angle, rad.
         #[serde(default)]
         initial_angle_rad: f64,
+        /// Travel-stop response; the solver default when omitted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop: Option<JointStopRecord>,
     },
     /// Single-axis linear rail, seat ejection catapult, or telescoping strut.
     Prismatic {
@@ -45,6 +51,9 @@ pub enum JointRecord {
         /// Initial linear displacement, m.
         #[serde(default)]
         initial_position_m: f64,
+        /// Travel-stop response; the solver default when omitted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop: Option<JointStopRecord>,
     },
     /// Three-axis spherical joint / gimbal bounded by `max_cone_rad`.
     Spherical {
@@ -52,6 +61,9 @@ pub enum JointRecord {
         max_cone_rad: f64,
         /// Viscous rotational damping, N·m·s/rad.
         damping_nm_s_rad: f64,
+        /// Travel-stop response; the solver default when omitted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        stop: Option<JointStopRecord>,
     },
     /// Six-DoF compliant coupler, shock mount, or docking capture ring.
     Compliant6Dof {
@@ -86,9 +98,11 @@ impl JointRecord {
                 max_torque_nm,
                 damping_nm_s_rad,
                 initial_angle_rad,
+                stop,
             } => (
                 JointSpec::revolute(DVec3::from_array(axis_local), min_rad, max_rad)
-                    .with_actuator(simple_actuator(max_torque_nm, 100.0, damping_nm_s_rad)),
+                    .with_actuator(simple_actuator(max_torque_nm, 100.0, damping_nm_s_rad))
+                    .with_stop(stop_spec(stop)),
                 JointState::revolute(initial_angle_rad, 0.0),
             ),
             Self::Prismatic {
@@ -98,20 +112,21 @@ impl JointRecord {
                 max_force_n,
                 damping_n_s_m,
                 initial_position_m,
+                stop,
             } => (
                 JointSpec::prismatic(DVec3::from_array(axis_local), min_m, max_m)
-                    .with_actuator(simple_actuator(max_force_n, 200.0, damping_n_s_m)),
+                    .with_actuator(simple_actuator(max_force_n, 200.0, damping_n_s_m))
+                    .with_stop(stop_spec(stop)),
                 JointState::prismatic(initial_position_m, 0.0),
             ),
             Self::Spherical {
                 max_cone_rad,
                 damping_nm_s_rad,
+                stop,
             } => (
-                JointSpec::spherical(max_cone_rad).with_actuator(simple_actuator(
-                    0.0,
-                    100.0,
-                    damping_nm_s_rad,
-                )),
+                JointSpec::spherical(max_cone_rad)
+                    .with_actuator(simple_actuator(0.0, 100.0, damping_nm_s_rad))
+                    .with_stop(stop_spec(stop)),
                 JointState::FIXED,
             ),
             Self::Compliant6Dof {
@@ -132,10 +147,27 @@ impl JointRecord {
         spec.validate(component_name)
             .map_err(SyspackError::InvalidTree)?;
         state
-            .validate(component_name, &spec.kind)
+            .validate(component_name)
             .map_err(SyspackError::InvalidTree)?;
         Ok((spec, state))
     }
+}
+
+/// Serialized travel-stop response of a bounded joint (see [`JointStopSpec`]).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct JointStopRecord {
+    /// Undamped natural frequency of the stop, rad/s.
+    pub natural_frequency_rad_s: f64,
+    /// Dimensionless damping ratio.
+    pub damping_ratio: f64,
+}
+
+fn stop_spec(record: Option<JointStopRecord>) -> JointStopSpec {
+    record.map_or(JointStopSpec::DEFAULT, |r| JointStopSpec {
+        natural_frequency_rad_s: r.natural_frequency_rad_s,
+        damping_ratio: r.damping_ratio,
+    })
 }
 
 fn simple_actuator(max_effort: f64, max_velocity: f64, damping: f64) -> JointActuatorSpec {

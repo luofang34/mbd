@@ -83,9 +83,9 @@ fn rocker_bogie_differential_and_weld_loops_conserve_internal_equilibrium() {
     )
     .unwrap();
 
-    assert_eq!(out.joint_drives.len(), 2);
-    assert!(out.joint_drives[0].effort_scalar < 0.0);
-    assert!(out.joint_drives[1].effort_scalar < 0.0);
+    assert_eq!(out.joint_loads.len(), 2);
+    assert!(out.joint_loads[0].effort_scalar < 0.0);
+    assert!(out.joint_loads[1].effort_scalar < 0.0);
 
     let net_root: (DVec3, DVec3) =
         out.wrenches

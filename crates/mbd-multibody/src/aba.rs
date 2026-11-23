@@ -1,10 +1,11 @@
 use alloc::vec::Vec;
 
 use glam::{DQuat, DVec3};
-use mbd_core::ComponentId;
+use mbd_core::{ComponentId, WrenchAtSite};
 
 use crate::spatial::SpatialMotion;
 
+mod articulated;
 mod chain;
 mod integrator;
 mod solver;
@@ -12,7 +13,7 @@ mod solver;
 #[cfg(test)]
 mod tests;
 
-pub use integrator::{step_rk4, step_rk4_with_forces};
+pub use integrator::{step_rk4, step_rk4_with_forces, step_rk4_with_loads};
 pub use solver::MultiBodyDynamics;
 
 /// Full 6-DoF rigid pose and body-frame spatial velocity of a floating base
@@ -54,7 +55,11 @@ impl FloatingBaseState {
     }
 }
 
-/// Actuator / motor / catapult drive effort applied across a non-fixed component joint.
+/// Actuator command (motor, servo, catapult) across a non-fixed component joint.
+///
+/// All commands addressed to one joint are summed, and the scalar sum is
+/// limited to the joint actuator's `max_effort`. Efforts that are not the
+/// actuator's own command belong in [`JointLoadInput`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct JointDriveInput {
     /// Component owning the target joint.
@@ -77,6 +82,47 @@ impl JointDriveInput {
             force_3d_n: DVec3::ZERO,
         }
     }
+}
+
+/// Joint-space load that is not an actuator command: a closed-loop
+/// constraint, a mechanism spring or damper, or a brake. Loads on one joint
+/// are summed with each other and with the limited actuator command, and are
+/// never limited themselves.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JointLoadInput {
+    /// Component owning the target joint.
+    pub component: ComponentId,
+    /// Generalized scalar torque (N·m) for `Revolute` or force (N) for `Prismatic`.
+    pub effort_scalar: f64,
+    /// Pure torque in placed frame (N·m) for `Spherical` or `Compliant6Dof`.
+    pub torque_3d_nm: DVec3,
+    /// Pure force in placed frame (N) for `Compliant6Dof`.
+    pub force_3d_n: DVec3,
+}
+
+impl JointLoadInput {
+    /// 1-DoF scalar load on `component`.
+    pub const fn scalar(component: ComponentId, effort_scalar: f64) -> Self {
+        Self {
+            component,
+            effort_scalar,
+            torque_3d_nm: DVec3::ZERO,
+            force_3d_n: DVec3::ZERO,
+        }
+    }
+}
+
+/// Everything a stage callback of [`step_rk4_with_loads`] supplies.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct StageForces {
+    /// Uniform gravity in world axes, m/s².
+    pub gravity_world_m_s2: DVec3,
+    /// Actuator commands, limited per joint by the actuator.
+    pub joint_drives: Vec<JointDriveInput>,
+    /// Constraint and mechanism joint loads, never limited.
+    pub joint_loads: Vec<JointLoadInput>,
+    /// External wrenches at component sites.
+    pub external_wrenches: Vec<WrenchAtSite>,
 }
 
 /// Joint-space acceleration resolved by [`MultiBodyDynamics::forward_dynamics`].

@@ -169,7 +169,8 @@ fn compute_planar_tire_forces(
 
     let f_max = (mu * fn_mag).max(0.0);
     let planar_mag = libm::sqrt(f_long_raw * f_long_raw + f_lat_raw * f_lat_raw);
-    if planar_mag > f_max && planar_mag > 1e-12 {
+    // `f_max >= 0`, so exceeding it also guarantees a nonzero divisor.
+    if planar_mag > f_max {
         let s = f_max / planar_mag;
         (f_long_raw * s, f_lat_raw * s, slip_ratio, slip_angle)
     } else {

@@ -139,7 +139,7 @@ pub fn step_tether(
     }
 
     state.last_tension_n = tension;
-    let f_a = if sep > 1e-12 && tension > 0.0 {
+    let f_a = if sep > 0.0 && tension > 0.0 {
         (delta / sep) * tension
     } else {
         DVec3::ZERO
@@ -161,7 +161,7 @@ fn compute_tether_tension(
     vel_a: DVec3,
     vel_b: DVec3,
 ) -> f64 {
-    if sep <= state.deployed_length_m || sep <= 1e-12 {
+    if sep <= state.deployed_length_m || sep == 0.0 {
         return 0.0;
     }
     let dir = delta / sep;

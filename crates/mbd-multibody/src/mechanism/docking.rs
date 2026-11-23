@@ -168,8 +168,7 @@ pub fn step_docking_capture(
             let target_pos_b = pos_a_world + axis_world * state.standoff_m;
             let f_on_b = (target_pos_b - pos_b_world) * spec.linear_stiffness_n_m
                 + (vel_a_world - vel_b_world) * spec.linear_damping_n_s_m;
-            let (ax, ang) = (rot_a_world * rel_rot.to_scaled_axis(), align_angle);
-            let _ = ang;
+            let ax = rot_a_world * rel_rot.to_scaled_axis();
             let t_on_b = (-ax) * spec.angular_stiffness_nm_rad
                 + (omega_a_world - omega_b_world) * spec.angular_damping_nm_s_rad;
             let w_b = SpatialForce::new(t_on_b, f_on_b);

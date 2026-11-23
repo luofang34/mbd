@@ -1,13 +1,10 @@
 use alloc::vec::Vec;
 
 use glam::DVec3;
-use mbd_core::{
-    ComponentId, ComponentState, ComponentTree, DynamicMassContribution, JointKind, JointSpec,
-    JointState,
-};
+use mbd_core::{ComponentId, ComponentTree, DynamicMassContribution, JointKind};
 
 use crate::MultibodyError;
-use crate::aba::{FloatingBaseState, JointDriveInput, MultiBodyDynamics};
+use crate::aba::{FloatingBaseState, JointDriveInput, JointLoadInput, MultiBodyDynamics};
 use crate::spatial::{SpatialForce, SpatialTransform};
 
 /// Output of separating a child subtree under pyrotechnic/spring impulse (`ImpulseRelease`).
@@ -57,8 +54,10 @@ pub struct RailSlideState {
 /// Result of one step of a [`RailSlideSpec`] rail slide actuator.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RailDriveOutput {
-    /// Joint-space catapult drive force to feed into forward dynamics.
+    /// Catapult force: the rail actuator's own command.
     pub drive: Option<JointDriveInput>,
+    /// Guide friction: a passive load, kept apart so actuator limits never clip it.
+    pub load: Option<JointLoadInput>,
     /// True once travel reaches `rail_length_m` and the body should separate cleanly.
     pub ready_to_release: bool,
 }
@@ -105,8 +104,8 @@ pub fn execute_impulse_release(
     }
     let axis_c = if impulse_ns == 0.0 {
         DVec3::X
-    } else if axis_in_child_frame.length_squared() > 1e-12 {
-        axis_in_child_frame.normalize()
+    } else if let Some(axis) = axis_in_child_frame.try_normalize() {
+        axis
     } else {
         return Err(MultibodyError::InvalidParameter {
             field: "axis_in_child_frame",
@@ -178,6 +177,7 @@ pub fn step_rail_drive(
     if !tree.is_attached(spec.component)? || state.released {
         return Ok(RailDriveOutput {
             drive: None,
+            load: None,
             ready_to_release: false,
         });
     }
@@ -190,6 +190,7 @@ pub fn step_rail_drive(
     if !state.fired {
         return Ok(RailDriveOutput {
             drive: None,
+            load: None,
             ready_to_release: false,
         });
     }
@@ -197,19 +198,23 @@ pub fn step_rail_drive(
     if j.q_scalar >= spec.rail_length_m {
         return Ok(RailDriveOutput {
             drive: None,
+            load: None,
             ready_to_release: true,
         });
     }
-    let friction = if j.q_vel_scalar.abs() > 1e-6 {
-        -spec.guide_friction_n * j.q_vel_scalar.signum()
-    } else {
+    // Coulomb friction opposes sliding; at exactly zero rate there is no
+    // sliding direction and the catapult alone acts.
+    let friction = if j.q_vel_scalar == 0.0 {
         0.0
+    } else {
+        -spec.guide_friction_n * j.q_vel_scalar.signum()
     };
     Ok(RailDriveOutput {
         drive: Some(JointDriveInput::scalar(
             spec.component,
-            spec.catapult_force_n + friction,
+            spec.catapult_force_n,
         )),
+        load: Some(JointLoadInput::scalar(spec.component, friction)),
         ready_to_release: false,
     })
 }
@@ -240,13 +245,15 @@ pub fn release_from_rail(
 }
 
 /// Steps a [`HingeSwingSpec`] hinged petal: produces opening spring-damper torque
-/// once unlatched, and reports `Some(JointDriveInput)` until `release_angle_rad`
+/// once unlatched, and reports `Some(JointLoadInput)` until `release_angle_rad`
 /// is reached. Use [`execute_impulse_release`] with `0.0` impulse upon exit.
+/// The spring is a passive load, so it is returned as a [`JointLoadInput`]
+/// that no actuator limit clips.
 pub fn step_hinge_release(
     spec: &HingeSwingSpec,
     state: &mut HingeSwingState,
     tree: &ComponentTree,
-) -> Result<(Option<JointDriveInput>, bool), MultibodyError> {
+) -> Result<(Option<JointLoadInput>, bool), MultibodyError> {
     if !tree.is_attached(spec.component)? || state.released {
         return Ok((None, false));
     }
@@ -264,7 +271,7 @@ pub fn step_hinge_release(
         return Ok((None, true));
     }
     let torque = spec.spring_torque_nm - spec.damper_nm_s_rad * j.q_vel_scalar;
-    Ok((Some(JointDriveInput::scalar(spec.component, torque)), false))
+    Ok((Some(JointLoadInput::scalar(spec.component, torque)), false))
 }
 
 pub(crate) fn remap_masses(
@@ -282,11 +289,4 @@ pub(crate) fn remap_masses(
                 })
         })
         .collect()
-}
-
-/// Marks `id` detached without splitting into a separate vehicle tree.
-pub(crate) fn _suppress_unused() {
-    let _ = ComponentState::at_temperature(293.15);
-    let _ = JointSpec::FIXED;
-    let _ = JointState::FIXED;
 }

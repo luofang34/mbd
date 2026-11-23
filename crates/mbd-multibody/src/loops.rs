@@ -4,7 +4,7 @@ use glam::DVec3;
 use mbd_core::{ComponentId, ComponentTree, JointKind, PoseTable, WrenchAtSite};
 
 use crate::MultibodyError;
-use crate::aba::JointDriveInput;
+use crate::aba::JointLoadInput;
 
 #[cfg(test)]
 mod tests;
@@ -63,13 +63,14 @@ pub enum LoopConstraint {
     },
 }
 
-/// Internal equal-and-opposite wrenches and joint drives returned by [`evaluate_loop_constraints`].
+/// Internal equal-and-opposite wrenches and joint loads returned by [`evaluate_loop_constraints`].
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct LoopOutput {
-    /// Local equal-and-opposite constraint wrenches ready for [`crate::MultiBodyDynamics::forward_dynamics`].
+    /// Local equal-and-opposite constraint wrenches ready for [`crate::MultiBodyDynamics::forward_dynamics_with_loads`].
     pub wrenches: Vec<WrenchAtSite>,
-    /// Internal joint-space efforts enforcing differential / closed-loop linkages.
-    pub joint_drives: Vec<JointDriveInput>,
+    /// Internal joint-space loads enforcing differential / closed-loop linkages;
+    /// pass them as loads so actuator limits never clip them.
+    pub joint_loads: Vec<JointLoadInput>,
 }
 
 /// Evaluates every closed-loop constraint cleanly, producing strictly balanced
@@ -100,10 +101,10 @@ pub fn evaluate_loop_constraints(
                 let err = (qa.q_scalar + ratio * qb.q_scalar) - offset;
                 let err_dot = qa.q_vel_scalar + ratio * qb.q_vel_scalar;
                 let force_eq = -(stiffness * err + damping * err_dot);
-                out.joint_drives
-                    .push(JointDriveInput::scalar(joint_a, force_eq));
-                out.joint_drives
-                    .push(JointDriveInput::scalar(joint_b, force_eq * ratio));
+                out.joint_loads
+                    .push(JointLoadInput::scalar(joint_a, force_eq));
+                out.joint_loads
+                    .push(JointLoadInput::scalar(joint_b, force_eq * ratio));
             }
             LoopConstraint::PointWeld {
                 site_a,
@@ -209,7 +210,7 @@ fn eval_unilateral_dist(
     let rb = pb.rotation_root_from_link * offset_b_m;
     let delta = (pb.position_root_m + rb) - (pa.position_root_m + ra);
     let dist = delta.length();
-    if dist <= max_length_m || dist <= 1e-12 {
+    if dist <= max_length_m || dist == 0.0 {
         return Ok(());
     }
     let dir = delta / dist;

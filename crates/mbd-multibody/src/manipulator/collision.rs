@@ -61,13 +61,15 @@ fn segment_segment_distance(p1: DVec3, q1: DVec3, p2: DVec3, q2: DVec3) -> f64 {
     let a = d1.dot(d1);
     let e = d2.dot(d2);
     let f = d2.dot(r);
-    let (s, t) = if a <= 1e-18 && e <= 1e-18 {
+    // Only an exactly zero-length segment is degenerate: the clamped
+    // parameters below stay bounded for any positive length, at any scale.
+    let (s, t) = if a == 0.0 && e == 0.0 {
         (0.0, 0.0)
-    } else if a <= 1e-18 {
+    } else if a == 0.0 {
         (0.0, (f / e).clamp(0.0, 1.0))
     } else {
         let c = d1.dot(r);
-        if e <= 1e-18 {
+        if e == 0.0 {
             ((-c / a).clamp(0.0, 1.0), 0.0)
         } else {
             let b = d1.dot(d2);
