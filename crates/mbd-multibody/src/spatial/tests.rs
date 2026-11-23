@@ -2,6 +2,8 @@ use glam::{DMat3, DQuat, DVec3};
 
 use super::*;
 
+mod small_scale;
+
 #[test]
 fn cross_products_and_transforms_preserve_virtual_power_and_duality() {
     let a = SpatialMotion::new(DVec3::new(0.4, -1.2, 0.7), DVec3::new(2.0, -0.5, 1.5));

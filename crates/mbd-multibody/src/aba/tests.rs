@@ -6,6 +6,20 @@ use mbd_core::{
 
 use super::*;
 
+mod compliant_joint;
+mod convergence;
+mod double_pendulum;
+mod free_floating;
+mod joint_drives;
+mod joint_stops;
+mod pendulum;
+mod rigid_fast_path;
+mod rigs;
+mod scale_invariance;
+mod small_links;
+mod spherical_joint;
+mod spherical_pendulum;
+
 fn part_spec(
     name: &str,
     placement: Placement,
