@@ -20,14 +20,14 @@ fn component(key: &str, parent: Option<&str>) -> Value {
 
 fn manifest() -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "test_vehicle-2",
         "name": "Test vehicle",
         "version": "1.0.0",
         "kind": "Spacecraft",
         "assets": {},
         "components": [component("root", None)],
-        "dynamics": "RigidBodyVacuum",
+        "dynamics": {"MultibodyComposed": {"aero_elements": []}},
         "devices": [],
     })
 }
@@ -123,16 +123,15 @@ fn omitted_controls_are_none_and_named_ones_stand_alone() {
 }
 
 #[test]
-fn unsupported_future_schema_is_refused() {
-    let mut value = manifest();
-    value["schema_version"] = json!(3);
-    assert!(matches!(
-        parse(&value),
-        Err(SyspackError::UnsupportedSchema {
-            found: 3,
-            expected: 2
-        })
-    ));
+fn every_schema_but_the_current_one_is_refused() {
+    for found in [1, 2, 4] {
+        let mut value = manifest();
+        value["schema_version"] = json!(found);
+        assert!(matches!(
+            parse(&value),
+            Err(SyspackError::UnsupportedSchema { found: f, expected: 3 }) if f == found
+        ));
+    }
 }
 
 #[test]
@@ -168,11 +167,13 @@ fn unknown_fields_are_refused_at_every_level() {
     let mut asset = manifest();
     asset["assets"]["a"] = json!({"sha256": "0".repeat(64), "size_bytes": 0, "surprise": 1});
     let mut capsule = manifest();
-    capsule["dynamics"] = json!({"RigidBodyBluntCapsule": {
-        "base_radius_m": 1.0, "nose_radius_m": 2.0, "reference_point_body_m": [-2.0, 0.0, 0.0],
-        "normal_force_slope": 0.1, "axial_drag_coeff": 1.0, "pitch_damping_coeff": -1.0,
-        "sutton_graves_k": 1e-4, "surprise": 1,
-    }});
+    capsule["dynamics"] = json!({"MultibodyComposed": {"aero_elements": [{
+        "site": "root", "kind": {"BluntCapsule": {
+            "base_radius_m": 1.0, "nose_radius_m": 2.0,
+            "reference_point_body_m": [-2.0, 0.0, 0.0], "normal_force_slope": 0.1,
+            "axial_drag_coeff": 1.0, "pitch_damping_coeff": -1.0, "surprise": 1,
+        }},
+    }]}});
     let mut device = manifest();
     device["devices"] = json!([{
         "id": "imu", "site": "root", "kind": {"Icm42688": {"seed": 1, "surprise": 1}},
@@ -373,9 +374,8 @@ fn malformed_json_is_a_parse_error() {
 }
 
 #[test]
-fn schema_two_parses_joints_subsystems_and_multibody_aero() {
+fn joints_subsystems_and_multibody_aero_parse() {
     let mut value = manifest();
-    value["schema_version"] = json!(2);
     value["kind"] = json!("RoboticServicer");
     let mut arm_link = component("arm_link_1", Some("root"));
     arm_link["joint"] = json!({
@@ -436,7 +436,7 @@ fn schema_two_parses_joints_subsystems_and_multibody_aero() {
         }]
     });
     let parsed = parse(&value).unwrap();
-    assert_eq!(parsed.schema_version, 2);
+    assert_eq!(parsed.schema_version, 3);
     assert_eq!(parsed.subsystems.tanks.len(), 1);
     assert_eq!(parsed.subsystems.manipulators.len(), 1);
 }
@@ -444,7 +444,6 @@ fn schema_two_parses_joints_subsystems_and_multibody_aero() {
 #[test]
 fn external_adapter_and_unknown_subsystem_sites_validate_strictly() {
     let mut ext = manifest();
-    ext["schema_version"] = json!(2);
     ext["assets"]["adapter.xml"] = json!({"sha256": "a".repeat(64), "size_bytes": 0});
     ext["dynamics"] = json!({
         "ExternalAdapter": {
@@ -455,7 +454,6 @@ fn external_adapter_and_unknown_subsystem_sites_validate_strictly() {
     assert!(parse(&ext).is_ok());
 
     let mut bad = manifest();
-    bad["schema_version"] = json!(2);
     bad["subsystems"] = json!({
         "tanks": [{
             "id": 1,

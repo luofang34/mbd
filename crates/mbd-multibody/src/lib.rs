@@ -41,23 +41,21 @@ pub use contact::{
 };
 pub use element::{BoxedElement, ElementContext, ForceElement, ForceFn, UniformGravity};
 pub use error::MultibodyError;
-pub use hydrodynamics::{
-    HullStation, HydrodynamicsModel, HydrodynamicsOutput, WaterQuery, WaterState,
-};
+pub use hydrodynamics::{HullStation, HullTotals, HydrodynamicsModel, WaterQuery, WaterState};
 pub use integrate::{
     DormandPrince54, Integrator, OdeSystem, Rk4, Rosenbrock23, StepReport, Tolerance, Tolerances,
 };
-pub use loops::{LoopConstraint, LoopOutput, evaluate_loop_constraints};
+pub use loops::LoopConstraint;
 pub use manipulator::{
     AdmittanceController, LinkCapsule, ManipulatorChain, minimum_capsule_clearance,
 };
 pub use mechanism::{
     DockingCapture, DockingEvaluation, DockingPhase, DockingSpec, DockingState, DockingTransition,
-    GrappleLockSpec, HardMateResult, HingeSwingSpec, HingeSwingState, ImpulseReleaseResult,
-    PortAnchor, PortKinematics, RailDriveOutput, RailSlideSpec, RailSlideState, Tether,
-    TetherAnchor, TetherCommand, TetherCutReason, TetherEnds, TetherEvaluation, WinchTetherSpec,
-    WinchTetherState, execute_impulse_release, grapple_lock, hard_mate_vessels, release_from_rail,
-    step_hinge_release, step_rail_drive, undock_vessel,
+    GrappleLockSpec, HardMateResult, HingeRelease, HingeSwingSpec, HingeSwingState,
+    ImpulseReleaseResult, PortAnchor, PortKinematics, RailSlide, RailSlideSpec, RailSlideState,
+    Tether, TetherAnchor, TetherCommand, TetherCutReason, TetherEnds, TetherEvaluation,
+    WinchTetherSpec, WinchTetherState, execute_impulse_release, grapple_lock, hard_mate_vessels,
+    release_from_rail, undock_vessel,
 };
 pub use model::{
     Kinematics, Loads, ModelOde, ModelScale, ModelState, MultibodyModel, PointKinematics,

@@ -4,12 +4,11 @@
 use alloc::vec::Vec;
 
 use glam::DVec3;
-use mbd_core::{ComponentId, WrenchAtSite};
+use mbd_core::ComponentId;
 
 use crate::MultibodyError;
-use crate::aba::FloatingBaseState;
 use crate::element::{ElementContext, ForceElement};
-use crate::model::Loads;
+use crate::model::{Kinematics, Loads, PointKinematics};
 
 #[cfg(test)]
 mod tests;
@@ -44,16 +43,18 @@ pub struct HullStation {
     pub slamming_coeff: f64,
 }
 
-/// Result of evaluating buoyancy, entry slamming deceleration, and water drag
-/// across all hull stations (e.g., Gemini 8 and Apollo CM ocean splashdown).
-#[derive(Debug, Clone, PartialEq)]
-pub struct HydrodynamicsOutput {
-    /// Local wrenches ready for multibody forward dynamics.
-    pub wrenches: Vec<WrenchAtSite>,
-    /// Total upward buoyant force magnitude, N.
+/// Summed loads of a hull at one state (e.g. Gemini 8 and Apollo CM ocean
+/// splashdown), for a host that reports or checks them.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct HullTotals {
+    /// Sum of the stations' upward buoyant force magnitudes, N.
     pub total_buoyancy_n: f64,
-    /// Total hydrodynamic impact/viscous drag magnitude, N.
+    /// Sum of the stations' drag and slamming force magnitudes, N.
     pub total_drag_n: f64,
+    /// Net force in the host component's axes, N.
+    pub force_local_n: DVec3,
+    /// Net moment about the host component's origin, its axes, N·m.
+    pub moment_local_nm: DVec3,
 }
 
 /// Discretized station hydrodynamics model supporting spherical planet up normals
@@ -96,44 +97,53 @@ impl HydrodynamicsModel {
         &self.stations
     }
 
-    /// Evaluates buoyancy, slamming, and quadratic water drag at `base_state`.
-    pub fn evaluate(
+    /// Calls `each` with every wet station, the station's point
+    /// kinematics, and its buoyant and hydrodynamic forces in world axes.
+    fn for_each_wet<I: WaterQuery + ?Sized>(
         &self,
-        base_state: &FloatingBaseState,
-        water: &WaterState,
-    ) -> Result<HydrodynamicsOutput, MultibodyError> {
-        check_water(water)?;
-        let rot = base_state.rotation_world_from_root;
-        let v_root_world = base_state.linear_vel_world_m_s();
-        let w_root_world = base_state.angular_vel_world_rad_s();
-
-        let mut wrenches = Vec::with_capacity(self.stations.len());
-        let mut total_buoyancy_n = 0.0;
-        let mut total_drag_n = 0.0;
-
+        kinematics: &Kinematics<'_>,
+        water: &I,
+        mut each: impl FnMut(&HullStation, &PointKinematics, DVec3, DVec3) -> Result<(), MultibodyError>,
+    ) -> Result<(), MultibodyError> {
+        if !kinematics.is_attached(self.component) {
+            return Ok(());
+        }
         for st in &self.stations {
-            let r_world = rot * st.offset_local_m;
-            let pos_world = base_state.position_world_m + r_world;
-            let v_station_world = v_root_world + w_root_world.cross(r_world);
-            let Some((f_buoy, f_hydro)) = station_forces(st, pos_world, v_station_world, water)
-            else {
+            let point = kinematics.point(self.component, st.offset_local_m)?;
+            let Some(sample) = water.water_at(point.position_world_m) else {
                 continue;
             };
-            total_buoyancy_n += f_buoy.length();
-            total_drag_n += f_hydro.length();
-            wrenches.push(WrenchAtSite {
-                site: self.component,
-                point_local_m: st.offset_local_m,
-                force_local_n: rot.conjugate() * (f_buoy + f_hydro),
-                torque_local_nm: DVec3::ZERO,
-            });
+            check_water(&sample)?;
+            let forces = station_forces(
+                st,
+                point.position_world_m,
+                point.velocity_world_m_s,
+                &sample,
+            );
+            if let Some((f_buoy, f_hydro)) = forces {
+                each(st, &point, f_buoy, f_hydro)?;
+            }
         }
+        Ok(())
+    }
 
-        Ok(HydrodynamicsOutput {
-            wrenches,
-            total_buoyancy_n,
-            total_drag_n,
-        })
+    /// Buoyancy, slamming and drag summed over the stations at the state
+    /// `kinematics` describes. Allocates nothing.
+    pub fn totals<I: WaterQuery + ?Sized>(
+        &self,
+        kinematics: &Kinematics<'_>,
+        water: &I,
+    ) -> Result<HullTotals, MultibodyError> {
+        let mut out = HullTotals::default();
+        self.for_each_wet(kinematics, water, |st, point, f_buoy, f_hydro| {
+            let f_local = point.to_link(f_buoy + f_hydro);
+            out.total_buoyancy_n += f_buoy.length();
+            out.total_drag_n += f_hydro.length();
+            out.force_local_n += f_local;
+            out.moment_local_nm += st.offset_local_m.cross(f_local);
+            Ok(())
+        })?;
+        Ok(out)
     }
 }
 
@@ -209,25 +219,12 @@ impl<I: WaterQuery + ?Sized> ForceElement<I> for HydrodynamicsModel {
         loads: &mut Loads<'_>,
         _state_dot: &mut [f64],
     ) -> Result<(), MultibodyError> {
-        if !ctx.kinematics.is_attached(self.component) {
-            return Ok(());
-        }
-        for st in &self.stations {
-            let point = ctx.kinematics.point(self.component, st.offset_local_m)?;
-            let Some(water) = ctx.inputs.water_at(point.position_world_m) else {
-                continue;
-            };
-            check_water(&water)?;
-            let forces =
-                station_forces(st, point.position_world_m, point.velocity_world_m_s, &water);
-            if let Some((f_buoy, f_hydro)) = forces {
-                loads.add_force(
-                    self.component,
-                    st.offset_local_m,
-                    point.to_link(f_buoy + f_hydro),
-                )?;
-            }
-        }
-        Ok(())
+        self.for_each_wet(ctx.kinematics, ctx.inputs, |st, point, f_buoy, f_hydro| {
+            loads.add_force(
+                self.component,
+                st.offset_local_m,
+                point.to_link(f_buoy + f_hydro),
+            )
+        })
     }
 }

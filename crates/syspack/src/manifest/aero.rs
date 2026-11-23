@@ -172,12 +172,17 @@ pub enum AeroElementKindRecord {
         shaft_axis_body: [f64; 3],
         /// Radial blade stations (`4..=32`).
         radial_stations: u8,
-        /// Baseline rotor spin speed, rad/s.
+        /// Control channel carrying the rotor speed, rad/s.
+        omega_channel: usize,
+        /// Control channel carrying collective pitch, rad.
         #[serde(default)]
-        initial_omega_rad_s: f64,
-        /// Initial collective offset, rad.
+        collective_channel: Option<usize>,
+        /// Control channel carrying lateral cyclic pitch, rad.
         #[serde(default)]
-        initial_collective_rad: f64,
+        cyclic_lat_channel: Option<usize>,
+        /// Control channel carrying longitudinal cyclic pitch, rad.
+        #[serde(default)]
+        cyclic_lon_channel: Option<usize>,
     },
     /// Free-molecular Sentman thermospheric / VLEO panel.
     RarefiedPanel {
@@ -216,6 +221,21 @@ pub enum AeroElementKindRecord {
         wake_velocity_ratio: f64,
         /// Rotational damping coeff.
         rotational_damping_coeff: f64,
+        /// Dynamic pressure at which the canopy fills with the filling
+        /// time constant, Pa.
+        reference_dynamic_pressure_pa: f64,
+        /// Control channel whose positive value fires the mortar.
+        #[serde(default)]
+        deploy_channel: Option<usize>,
+        /// Control channel carrying the reefing area fraction.
+        #[serde(default)]
+        reefing_channel: Option<usize>,
+        /// Whether the canopy starts deployed.
+        #[serde(default)]
+        deployed_at_start: bool,
+        /// Inflation fraction at start, `0..=1`.
+        #[serde(default)]
+        inflation_at_start: f64,
     },
     /// Ejected dummy / crew occupant drag and damping model.
     HumanDummy {
@@ -230,4 +250,55 @@ pub enum AeroElementKindRecord {
         /// Reference point in local axes, m.
         reference_point_body_m: [f64; 3],
     },
+    /// Quasi-steady flapping insect wing on its own hinged link.
+    FlappingWing {
+        /// Root end of the wing's rotation axis, component axes, m.
+        root_m: [f64; 3],
+        /// Unit vector along the rotation axis from root to tip.
+        span_axis: [f64; 3],
+        /// Unit vector in the wing plane toward the leading edge.
+        chord_axis: [f64; 3],
+        /// Root-to-tip length, m.
+        length_m: f64,
+        /// Chord of each equal-width blade element, root to tip, m.
+        chords_m: Vec<f64>,
+        /// Chord fraction of the rotation axis behind the leading edge.
+        rotation_axis_chord_fraction: f64,
+        /// Chord fraction behind the leading edge where the circulatory
+        /// forces act.
+        center_of_pressure_chord_fraction: f64,
+    },
+}
+
+impl AeroElementRecord {
+    /// A modified-Newtonian blunt capsule on `site`, the parameter set of a
+    /// hypersonic reentry capsule: Sutton-Graves constant given, no
+    /// subsonic, transonic or free-molecular corrections.
+    #[allow(clippy::too_many_arguments)]
+    pub fn blunt_capsule_newtonian(
+        site: impl Into<String>,
+        base_radius_m: f64,
+        nose_radius_m: f64,
+        reference_point_body_m: [f64; 3],
+        normal_force_slope: f64,
+        axial_drag_coeff: f64,
+        pitch_damping_coeff: f64,
+        sutton_graves_k: f64,
+    ) -> Self {
+        Self {
+            site: site.into(),
+            kind: AeroElementKindRecord::BluntCapsule {
+                base_radius_m,
+                nose_radius_m,
+                reference_point_body_m,
+                normal_force_slope,
+                axial_drag_coeff,
+                pitch_damping_coeff,
+                sutton_graves_k: Some(sutton_graves_k),
+                subsonic_drag_coeff: None,
+                transonic_drag_rise: 0.0,
+                free_molecular_drag_coeff: None,
+            },
+        }
+    }
 }

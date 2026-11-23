@@ -1,7 +1,7 @@
 //! Model-based design contracts shared by simulators and design tools: the live
 //! component and frame tree with kinematic joints and topology transformations,
 //! multi-species ambient gas, mounting-site physics, conserved flows, faults,
-//! layered ports, and pluggable aerodynamics.
+//! and layered ports.
 //!
 //! Vehicle axes follow the aerospace convention (`x` forward, `y` right, `z`
 //! down); all quantities are SI. Everything outside tests builds without `std`.
@@ -10,7 +10,6 @@
 
 extern crate alloc;
 
-mod aero;
 mod component;
 mod environment;
 mod error;
@@ -21,7 +20,6 @@ mod joint;
 mod math;
 mod ports;
 
-pub use aero::{AeroFlowState, AeroModel, AeroWrench, VacuumAero};
 pub use component::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, GraftedTree, MassProperties,
     Placement, RerootedTree, SplitTrees,

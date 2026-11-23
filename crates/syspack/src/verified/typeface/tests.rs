@@ -10,7 +10,7 @@ const PROVENANCE: &[u8] = b"provenance";
 fn source() -> (MemoryPackageSource, String) {
     let asset = |bytes: &[u8]| json!({"sha256": sha256_hex(bytes), "size_bytes": bytes.len()});
     let manifest = json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "us-ms33558",
         "name": "MS33558 lettering",
         "version": "1.0.0",

@@ -1,8 +1,10 @@
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{
-    check_finite, check_finite_vec, check_nonnegative, check_positive, control_slot, smoothstep01,
+    check_finite, check_finite_vec, check_nonnegative, check_positive, smoothstep01,
 };
 
 #[cfg(test)]
@@ -88,16 +90,17 @@ impl BodyAndFinAero {
     }
 }
 
-impl AeroModel for BodyAndFinAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+impl BodyAndFinAero {
+    /// Load on the link for the flow at it.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
         let p = &self.params;
         let rho = flow.ambient.density_kg_m3;
-        let v = flow.velocity_air_body_m_s;
+        let v = flow.velocity_air_link_m_s;
         let speed = v.length();
         if rho == 0.0 || speed == 0.0 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.reference_point_body_m,
+                reference_point_link_m: p.reference_point_body_m,
                 ..AeroWrench::ZERO
             });
         }
@@ -120,11 +123,15 @@ impl AeroModel for BodyAndFinAero {
             -q * p.ref_area_m2 * p.cn_alpha_body * u_dir.x.abs().max(0.25) * transverse;
 
         // Control fin loads clamped at fin stall.
-        let de =
-            control_slot(flow, p.pitch_control_channel).clamp(-p.fin_stall_rad, p.fin_stall_rad);
-        let dr = control_slot(flow, p.yaw_control_channel).clamp(-p.fin_stall_rad, p.fin_stall_rad);
-        let da =
-            control_slot(flow, p.roll_control_channel).clamp(-p.fin_stall_rad, p.fin_stall_rad);
+        let de = flow
+            .control(p.pitch_control_channel)
+            .clamp(-p.fin_stall_rad, p.fin_stall_rad);
+        let dr = flow
+            .control(p.yaw_control_channel)
+            .clamp(-p.fin_stall_rad, p.fin_stall_rad);
+        let da = flow
+            .control(p.roll_control_channel)
+            .clamp(-p.fin_stall_rad, p.fin_stall_rad);
         let q_fin = q * p.fin_area_m2 * p.fin_cl_alpha;
         // Positive pitch fin deflection gives nose-up (+Y moment) via -Z? Wait: fin sits aft (-X).
         // Downward force (+Z) at (-fin_arm_m, 0, 0) produces (-fin_arm, 0, 0) x (0, 0, +Z) = (0, +fin_arm * Fz, 0) = +Y nose up!
@@ -137,7 +144,7 @@ impl AeroModel for BodyAndFinAero {
             -p.fin_arm_m * fin_fy,
         );
 
-        let omega = flow.angular_rate_body_rad_s;
+        let omega = flow.angular_rate_link_rad_s;
         let damp_scale = 0.25 * rho * speed * p.ref_area_m2 * p.ref_length_m * p.ref_length_m;
         let damp_moment = DVec3::new(
             omega.x * damp_scale * p.roll_damping_coeff,
@@ -145,9 +152,9 @@ impl AeroModel for BodyAndFinAero {
             omega.z * damp_scale * p.pitch_damping_coeff,
         );
 
-        let force_body_n =
+        let force_link_n =
             DVec3::new(axial_force, 0.0, 0.0) + induced_drag_n + body_normal_n + fin_force;
-        let moment_ref_body_nm = fin_moment + damp_moment;
+        let moment_ref_link_nm = fin_moment + damp_moment;
         let heat_flux = flow.ambient.sutton_graves_k()
             * libm::sqrt(rho / p.nose_radius_m)
             * speed
@@ -155,9 +162,9 @@ impl AeroModel for BodyAndFinAero {
             * speed;
 
         Ok(AeroWrench {
-            reference_point_body_m: p.reference_point_body_m,
-            force_body_n,
-            moment_ref_body_nm,
+            reference_point_link_m: p.reference_point_body_m,
+            force_link_n,
+            moment_ref_link_nm,
             stagnation_heat_flux_w_m2: heat_flux,
         })
     }

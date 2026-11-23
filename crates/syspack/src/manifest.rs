@@ -24,11 +24,8 @@ pub use subsystems::{
     ThermalNodeRecord, TpsShieldRecord, TransferLineRecord, WheelRecord,
 };
 
-/// Oldest `schema_version` supported by this build.
-pub const MIN_SCHEMA_VERSION: u32 = 1;
-
-/// Latest `schema_version` produced and validated by this build.
-pub const SCHEMA_VERSION: u32 = 2;
+/// The `schema_version` this build reads and writes; no other is accepted.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// What kind of system a package holds. Vehicles and stationary systems share
 /// one schema; [`DynamicsSpec::None`] marks a system that does not move.
@@ -174,28 +171,11 @@ pub enum DynamicsSpec {
         /// Further documents as `(package asset, JSBSim virtual path)`.
         additional_assets: Vec<(String, String)>,
     },
-    /// Rigid-body flight with no aerodynamics, as [`mbd_core::VacuumAero`].
-    RigidBodyVacuum,
-    /// Rigid-body flight on a [`mbd_aero::BluntCapsuleAero`].
-    RigidBodyBluntCapsule {
-        /// Maximum heat-shield radius, metres.
-        base_radius_m: f64,
-        /// Spherical heat-shield radius, metres.
-        nose_radius_m: f64,
-        /// Heat shield's centre of curvature, body axes, metres.
-        reference_point_body_m: [f64; 3],
-        /// `s` in `CN = s sin α cos α`.
-        normal_force_slope: f64,
-        /// `CA0` in `CA = CA0 cos² α`.
-        axial_drag_coeff: f64,
-        /// Pitch-damping derivative `Cmq`; negative damps.
-        pitch_damping_coeff: f64,
-        /// Sutton-Graves heating constant.
-        sutton_graves_k: f64,
-    },
-    /// Multi-body articulated/staged vehicle with per-component composed aerodynamic elements.
+    /// Flight on the multibody model of the component tree, each
+    /// aerodynamic element loading the component it is mounted on. An
+    /// empty list is flight in vacuum.
     MultibodyComposed {
-        /// Component-bound aerodynamic elements evaluated against live `PoseTable`.
+        /// Aerodynamic elements, each bound to a component key.
         #[serde(default)]
         aero_elements: Vec<AeroElementRecord>,
     },
@@ -212,13 +192,18 @@ pub enum DynamicsSpec {
 }
 
 impl DynamicsSpec {
+    /// Flight with no aerodynamic load: an empty composed vehicle.
+    pub const fn vacuum() -> Self {
+        Self::MultibodyComposed {
+            aero_elements: Vec::new(),
+        }
+    }
+
     /// The manifest name of this dynamics kind.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::None => "None",
             Self::JsbsimXml { .. } => "JsbsimXml",
-            Self::RigidBodyVacuum => "RigidBodyVacuum",
-            Self::RigidBodyBluntCapsule { .. } => "RigidBodyBluntCapsule",
             Self::MultibodyComposed { .. } => "MultibodyComposed",
             Self::ExternalAdapter { .. } => "ExternalAdapter",
         }
@@ -422,7 +407,7 @@ pub struct SyspackManifest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typeface: Option<crate::TypefaceSpec>,
     /// Declarative fluid, propulsion, electrical, thermal, mechanism, manipulator,
-    /// and wheel subsystems hosted on the vehicle's component tree (`schema_version >= 2`).
+    /// and wheel subsystems hosted on the vehicle's component tree.
     #[serde(default, skip_serializing_if = "SubsystemManifest::is_empty")]
     pub subsystems: SubsystemManifest,
 }

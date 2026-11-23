@@ -14,3 +14,4 @@ workspace = true
 glam = { workspace = true }
 libm = { workspace = true }
 mbd-core = { workspace = true }
+mbd-multibody = { workspace = true }

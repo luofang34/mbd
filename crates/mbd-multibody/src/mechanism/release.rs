@@ -1,11 +1,15 @@
 use alloc::vec::Vec;
 
 use glam::DVec3;
-use mbd_core::{ComponentId, ComponentTree, DynamicMassContribution, JointKind};
+use mbd_core::{ComponentId, ComponentTree, DynamicMassContribution};
 
 use crate::MultibodyError;
-use crate::aba::{FloatingBaseState, JointDriveInput, JointLoadInput, MultiBodyDynamics};
+use crate::aba::{FloatingBaseState, MultiBodyDynamics};
 use crate::spatial::{SpatialForce, SpatialTransform};
+
+mod element;
+
+pub use element::{HingeRelease, RailSlide};
 
 /// Output of separating a child subtree under pyrotechnic/spring impulse (`ImpulseRelease`).
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +36,7 @@ pub struct ImpulseReleaseResult {
 /// e.g., Vostok-1 SK-1 ejection seat or Tu-160 K-36DM seat).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RailSlideSpec {
-    /// Component owning the [`JointKind::Prismatic`] guide rail joint.
+    /// Component owning the [`mbd_core::JointKind::Prismatic`] guide rail joint.
     pub component: ComponentId,
     /// Distance from zero where the carriage leaves the guide rails, m.
     pub rail_length_m: f64,
@@ -42,23 +46,13 @@ pub struct RailSlideSpec {
     pub guide_friction_n: f64,
 }
 
-/// Runtime state of a [`RailSlideSpec`] guide ejection sequence.
+/// Discrete state of a rail slide, held in its element's two modes.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct RailSlideState {
     /// Whether firing has been initiated.
     pub fired: bool,
-    /// Whether the sliding body has already exited the rail.
-    pub released: bool,
-}
-
-/// Result of one step of a [`RailSlideSpec`] rail slide actuator.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct RailDriveOutput {
-    /// Catapult force: the rail actuator's own command.
-    pub drive: Option<JointDriveInput>,
-    /// Guide friction: a passive load, kept apart so actuator limits never clip it.
-    pub load: Option<JointLoadInput>,
-    /// True once travel reaches `rail_length_m` and the body should separate cleanly.
+    /// Whether travel has reached the rail's end, so the host should
+    /// separate the body with [`release_from_rail`].
     pub ready_to_release: bool,
 }
 
@@ -66,7 +60,7 @@ pub struct RailDriveOutput {
 /// e.g., Apollo SLA panels or payload fairing petals).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HingeSwingSpec {
-    /// Component owning the [`JointKind::Revolute`] hinge joint.
+    /// Component owning the [`mbd_core::JointKind::Revolute`] hinge joint.
     pub component: ComponentId,
     /// Opening angle at which the structural hinge pins unhook cleanly, rad.
     pub release_angle_rad: f64,
@@ -76,13 +70,14 @@ pub struct HingeSwingSpec {
     pub damper_nm_s_rad: f64,
 }
 
-/// Runtime state of a [`HingeSwingSpec`] separation panel.
+/// Discrete state of a hinged panel, held in its element's two modes.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct HingeSwingState {
     /// Whether pyro bolts have cut to let the panel swing open.
     pub unlatched: bool,
-    /// Whether the hinge pins have unhooked cleanly into free 6-DoF flight.
-    pub released: bool,
+    /// Whether the panel has reached its release angle, so the host should
+    /// separate it with [`execute_impulse_release`].
+    pub ready_to_release: bool,
 }
 
 /// Separates `child_root` from `tree`, preserving exact pre-split link
@@ -167,73 +162,14 @@ pub fn execute_impulse_release(
     })
 }
 
-/// Evaluates catapult drive force along a [`RailSlideSpec`] prismatic guide
-/// and flags `ready_to_release` once rail travel is completed.
-pub fn step_rail_drive(
-    spec: &RailSlideSpec,
-    state: &mut RailSlideState,
-    tree: &ComponentTree,
-) -> Result<RailDriveOutput, MultibodyError> {
-    if !tree.is_attached(spec.component)? || state.released {
-        return Ok(RailDriveOutput {
-            drive: None,
-            load: None,
-            ready_to_release: false,
-        });
-    }
-    if !matches!(
-        tree.spec(spec.component)?.joint.kind,
-        JointKind::Prismatic { .. }
-    ) {
-        return Err(MultibodyError::WrongJointKind { id: spec.component });
-    }
-    if !state.fired {
-        return Ok(RailDriveOutput {
-            drive: None,
-            load: None,
-            ready_to_release: false,
-        });
-    }
-    let j = tree.state(spec.component)?.joint;
-    if j.q_scalar >= spec.rail_length_m {
-        return Ok(RailDriveOutput {
-            drive: None,
-            load: None,
-            ready_to_release: true,
-        });
-    }
-    // Coulomb friction opposes sliding; at exactly zero rate there is no
-    // sliding direction and the catapult alone acts.
-    let friction = if j.q_vel_scalar == 0.0 {
-        0.0
-    } else {
-        -spec.guide_friction_n * j.q_vel_scalar.signum()
-    };
-    Ok(RailDriveOutput {
-        drive: Some(JointDriveInput::scalar(
-            spec.component,
-            spec.catapult_force_n,
-        )),
-        load: Some(JointLoadInput::scalar(spec.component, friction)),
-        ready_to_release: false,
-    })
-}
-
 /// Completes a [`RailSlideSpec`] ejection by cleanly transitioning the sliding
 /// subtree to free 6-DoF flight preserving exact guide-exit velocity.
 pub fn release_from_rail(
     spec: &RailSlideSpec,
-    state: &mut RailSlideState,
     tree: &ComponentTree,
     dynamic_masses: &[DynamicMassContribution],
     base_state: &FloatingBaseState,
 ) -> Result<ImpulseReleaseResult, MultibodyError> {
-    if state.released {
-        return Err(MultibodyError::InvalidMechanismState {
-            detail: alloc::format!("rail component {} already released", spec.component),
-        });
-    }
-    state.released = true;
     execute_impulse_release(
         tree,
         dynamic_masses,
@@ -242,36 +178,6 @@ pub fn release_from_rail(
         0.0,
         DVec3::X,
     )
-}
-
-/// Steps a [`HingeSwingSpec`] hinged petal: produces opening spring-damper torque
-/// once unlatched, and reports `Some(JointLoadInput)` until `release_angle_rad`
-/// is reached. Use [`execute_impulse_release`] with `0.0` impulse upon exit.
-/// The spring is a passive load, so it is returned as a [`JointLoadInput`]
-/// that no actuator limit clips.
-pub fn step_hinge_release(
-    spec: &HingeSwingSpec,
-    state: &mut HingeSwingState,
-    tree: &ComponentTree,
-) -> Result<(Option<JointLoadInput>, bool), MultibodyError> {
-    if !tree.is_attached(spec.component)? || state.released {
-        return Ok((None, false));
-    }
-    if !matches!(
-        tree.spec(spec.component)?.joint.kind,
-        JointKind::Revolute { .. }
-    ) {
-        return Err(MultibodyError::WrongJointKind { id: spec.component });
-    }
-    if !state.unlatched {
-        return Ok((None, false));
-    }
-    let j = tree.state(spec.component)?.joint;
-    if j.q_scalar >= spec.release_angle_rad {
-        return Ok((None, true));
-    }
-    let torque = spec.spring_torque_nm - spec.damper_nm_s_rad * j.q_vel_scalar;
-    Ok((Some(JointLoadInput::scalar(spec.component, torque)), false))
 }
 
 pub(crate) fn remap_masses(

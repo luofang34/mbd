@@ -4,9 +4,7 @@ use mbd_core::{ComponentId, ComponentTree};
 use mbd_provenance::SourceTable;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    DynamicsSpec, InstrumentPackDocument, PackageSource, SyspackError, SyspackManifest, SystemKind,
-};
+use crate::{InstrumentPackDocument, PackageSource, SyspackError, SyspackManifest, SystemKind};
 
 mod dynamics;
 mod instruments;
@@ -105,14 +103,6 @@ impl VerifiedSyspack {
             instrument_pack,
             provenance_table,
         };
-        if matches!(
-            package.manifest.dynamics,
-            DynamicsSpec::RigidBodyVacuum
-                | DynamicsSpec::RigidBodyBluntCapsule { .. }
-                | DynamicsSpec::MultibodyComposed { .. }
-        ) {
-            package.build_aero_model()?;
-        }
         package.validate_all_subsystems()?;
         Ok(package)
     }

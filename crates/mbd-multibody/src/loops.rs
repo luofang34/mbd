@@ -1,20 +1,18 @@
 //! Closed kinematic loops as penalty constraints: balanced internal joint
 //! loads and wrench pairs that are pure functions of pose and velocity.
 
-use alloc::vec::Vec;
-
 use glam::DVec3;
-use mbd_core::{ComponentId, ComponentTree, JointKind, LinkPose, PoseTable, WrenchAtSite};
+use mbd_core::{ComponentId, JointKind, LinkPose, WrenchAtSite};
 
 use crate::MultibodyError;
 use crate::aba::JointLoadInput;
 use crate::element::{ElementContext, ForceElement};
-use crate::model::Loads;
+use crate::model::{Kinematics, Loads};
 
 #[cfg(test)]
 mod tests;
 
-/// Closed-loop kinematic constraint evaluated inside a [`ComponentTree`] (e.g.,
+/// Closed-loop kinematic constraint evaluated inside a [`mbd_core::ComponentTree`] (e.g.,
 /// Mars Perseverance rocker-bogie differential bar or closed robotic grapple).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LoopConstraint {
@@ -66,52 +64,6 @@ pub enum LoopConstraint {
         /// Axial tensile damping, N·s/m.
         damping_n_s_m: f64,
     },
-}
-
-/// Internal equal-and-opposite wrenches and joint loads returned by [`evaluate_loop_constraints`].
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct LoopOutput {
-    /// Local equal-and-opposite constraint wrenches ready for [`crate::MultiBodyDynamics::forward_dynamics_with_loads`].
-    pub wrenches: Vec<WrenchAtSite>,
-    /// Internal joint-space loads enforcing differential / closed-loop linkages;
-    /// pass them as loads so actuator limits never clip them.
-    pub joint_loads: Vec<JointLoadInput>,
-}
-
-/// Evaluates every closed-loop constraint cleanly, producing strictly balanced
-/// internal actions with zero net external force or moment on the vehicle.
-pub fn evaluate_loop_constraints(
-    tree: &ComponentTree,
-    poses: &PoseTable,
-    constraints: &[LoopConstraint],
-) -> Result<LoopOutput, MultibodyError> {
-    let mut out = LoopOutput::default();
-    for constraint in constraints {
-        match *constraint {
-            LoopConstraint::JointRatio {
-                joint_a, joint_b, ..
-            } => {
-                if !tree.is_attached(joint_a)? || !tree.is_attached(joint_b)? {
-                    continue;
-                }
-                check_1dof(joint_a, tree.spec(joint_a)?.joint.kind)?;
-                check_1dof(joint_b, tree.spec(joint_b)?.joint.kind)?;
-                let qa = tree.state(joint_a)?.joint;
-                let qb = tree.state(joint_b)?.joint;
-                let coords = (qa.q_scalar, qa.q_vel_scalar, qb.q_scalar, qb.q_vel_scalar);
-                out.joint_loads.extend(constraint.ratio_loads(coords));
-            }
-            LoopConstraint::PointWeld { site_a, site_b, .. }
-            | LoopConstraint::UnilateralDistance { site_a, site_b, .. } => {
-                let (pa, pb) = (poses.get(site_a)?, poses.get(site_b)?);
-                if pa.attached && pb.attached {
-                    out.wrenches
-                        .extend(constraint.point_pair(pa, pb).into_iter().flatten());
-                }
-            }
-        }
-    }
-    Ok(out)
 }
 
 fn check_1dof(id: ComponentId, kind: JointKind) -> Result<(), MultibodyError> {
@@ -210,6 +162,51 @@ impl LoopConstraint {
     }
 }
 
+impl LoopConstraint {
+    /// Balanced joint loads of a [`LoopConstraint::JointRatio`] at the
+    /// state `kinematics` describes; `None` for a point constraint or a
+    /// detached joint.
+    pub fn joint_loads(
+        &self,
+        kinematics: &Kinematics<'_>,
+    ) -> Result<Option<[JointLoadInput; 2]>, MultibodyError> {
+        let Self::JointRatio {
+            joint_a, joint_b, ..
+        } = *self
+        else {
+            return Ok(None);
+        };
+        if !kinematics.is_attached(joint_a) || !kinematics.is_attached(joint_b) {
+            return Ok(None);
+        }
+        check_1dof(joint_a, kinematics.joint_kind(joint_a)?)?;
+        check_1dof(joint_b, kinematics.joint_kind(joint_b)?)?;
+        let (qa, qb) = (kinematics.joint(joint_a)?, kinematics.joint(joint_b)?);
+        let coords = (qa.q_scalar, qa.q_vel_scalar, qb.q_scalar, qb.q_vel_scalar);
+        Ok(Some(self.ratio_loads(coords)))
+    }
+
+    /// Equal-and-opposite wrench pair of a point constraint at the state
+    /// `kinematics` describes; `None` for a joint constraint, a slack
+    /// unilateral one or a detached site.
+    pub fn wrench_pair(
+        &self,
+        kinematics: &Kinematics<'_>,
+    ) -> Result<Option<[WrenchAtSite; 2]>, MultibodyError> {
+        let (Self::PointWeld { site_a, site_b, .. }
+        | Self::UnilateralDistance { site_a, site_b, .. }) = *self
+        else {
+            return Ok(None);
+        };
+        if !kinematics.is_attached(site_a) || !kinematics.is_attached(site_b) {
+            return Ok(None);
+        }
+        let pa = kinematics.link_pose_in_root(site_a)?;
+        let pb = kinematics.link_pose_in_root(site_b)?;
+        Ok(self.point_pair(&pa, &pb))
+    }
+}
+
 /// A loop constraint is a stateless force element: its loads depend on the
 /// evaluated state alone.
 impl<I: ?Sized> ForceElement<I> for LoopConstraint {
@@ -221,35 +218,11 @@ impl<I: ?Sized> ForceElement<I> for LoopConstraint {
         loads: &mut Loads<'_>,
         _state_dot: &mut [f64],
     ) -> Result<(), MultibodyError> {
-        let kin = ctx.kinematics;
-        match *self {
-            Self::JointRatio {
-                joint_a, joint_b, ..
-            } => {
-                if !kin.is_attached(joint_a) || !kin.is_attached(joint_b) {
-                    return Ok(());
-                }
-                check_1dof(joint_a, kin.joint_kind(joint_a)?)?;
-                check_1dof(joint_b, kin.joint_kind(joint_b)?)?;
-                let (qa, qb) = (kin.joint(joint_a)?, kin.joint(joint_b)?);
-                let coords = (qa.q_scalar, qa.q_vel_scalar, qb.q_scalar, qb.q_vel_scalar);
-                for load in self.ratio_loads(coords) {
-                    loads.add_joint_load(&load)?;
-                }
-            }
-            Self::PointWeld { site_a, site_b, .. }
-            | Self::UnilateralDistance { site_a, site_b, .. } => {
-                if !kin.is_attached(site_a) || !kin.is_attached(site_b) {
-                    return Ok(());
-                }
-                let (pa, pb) = (
-                    kin.link_pose_in_root(site_a)?,
-                    kin.link_pose_in_root(site_b)?,
-                );
-                for wrench in self.point_pair(&pa, &pb).iter().flatten() {
-                    loads.add_wrench(wrench)?;
-                }
-            }
+        for load in self.joint_loads(ctx.kinematics)?.iter().flatten() {
+            loads.add_joint_load(load)?;
+        }
+        for wrench in self.wrench_pair(ctx.kinematics)?.iter().flatten() {
+            loads.add_wrench(wrench)?;
         }
         Ok(())
     }

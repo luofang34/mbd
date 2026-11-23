@@ -39,15 +39,15 @@ fn positive_alpha_lifts_upward_and_orthogonally_to_flow() {
     let alpha = 0.08_f64;
     let v = DVec3::new(alpha.cos(), 0.0, alpha.sin()) * 80.0;
     let w = wing
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: v,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: v,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: air,
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap();
-    assert!(w.force_body_n.z < 0.0, "lift must point -Z up");
-    assert!(w.force_body_n.dot(v) < 0.0, "drag opposes flight path");
+    assert!(w.force_link_n.z < 0.0, "lift must point -Z up");
+    assert!(w.force_link_n.dot(v) < 0.0, "drag opposes flight path");
 }
 
 #[test]
@@ -57,26 +57,26 @@ fn variable_sweep_reduces_transonic_wave_drag() {
     let speed = 0.90 * air.sound_speed_m_s;
 
     let forward_sweep = wing
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::X * speed,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::X * speed,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: air,
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap();
 
     let mut controls = [0.0; 8];
     controls[3] = 0.75; // sweep back further (to ~1.1 rad ~ 63 deg)
     let swept_back = wing
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::X * speed,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::X * speed,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: air,
-            control_surfaces_rad: controls,
+            controls: &controls,
         })
         .unwrap();
 
-    assert!((-swept_back.force_body_n.x) < (-forward_sweep.force_body_n.x));
+    assert!((-swept_back.force_link_n.x) < (-forward_sweep.force_link_n.x));
 }
 
 #[test]
@@ -84,20 +84,17 @@ fn wing_roll_rate_produces_restoring_roll_damping() {
     let right_wing = swept_wing(0.2, DVec3::new(0.0, 8.0, 0.0));
     let left_wing = swept_wing(0.2, DVec3::new(0.0, -8.0, 0.0));
     let air = AmbientGas::earth_air(101_325.0, 288.15).unwrap();
-    let flow = AeroFlowState {
-        velocity_air_body_m_s: DVec3::X * 100.0,
-        angular_rate_body_rad_s: DVec3::new(0.5, 0.0, 0.0), // rolling right wing down
+    let flow = LinkFlow {
+        velocity_air_link_m_s: DVec3::X * 100.0,
+        angular_rate_link_rad_s: DVec3::new(0.5, 0.0, 0.0), // rolling right wing down
         ambient: air,
-        control_surfaces_rad: [0.0; 8],
+        controls: &[],
     };
     let mr = right_wing
         .evaluate(&flow)
         .unwrap()
-        .moment_about_cg(DVec3::ZERO);
-    let ml = left_wing
-        .evaluate(&flow)
-        .unwrap()
-        .moment_about_cg(DVec3::ZERO);
+        .moment_about(DVec3::ZERO);
+    let ml = left_wing.evaluate(&flow).unwrap().moment_about(DVec3::ZERO);
     assert!(
         (mr.x + ml.x) < 0.0,
         "roll rate +x must be damped (-x moment)"

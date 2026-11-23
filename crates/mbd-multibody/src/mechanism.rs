@@ -11,9 +11,8 @@ pub use docking::{
     undock_vessel,
 };
 pub use release::{
-    HingeSwingSpec, HingeSwingState, ImpulseReleaseResult, RailDriveOutput, RailSlideSpec,
-    RailSlideState, execute_impulse_release, release_from_rail, step_hinge_release,
-    step_rail_drive,
+    HingeRelease, HingeSwingSpec, HingeSwingState, ImpulseReleaseResult, RailSlide, RailSlideSpec,
+    RailSlideState, execute_impulse_release, release_from_rail,
 };
 pub use tether::{
     Tether, TetherAnchor, TetherCommand, TetherCutReason, TetherEnds, TetherEvaluation,

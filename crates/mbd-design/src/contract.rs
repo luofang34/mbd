@@ -11,7 +11,7 @@ mod tests;
 pub enum FindingSeverity {
     /// Physical invariant or engineering requirement satisfied.
     Pass,
-    /// Non-fatal design advisory (e.g. missing provenance table on a v2 craft).
+    /// Non-fatal design advisory (e.g. a vehicle without a provenance table).
     Warning,
     /// Physical impossibility or hard contract failure.
     Fail,
@@ -56,7 +56,7 @@ pub fn audit_verified_syspack(pack: &VerifiedSyspack) -> Result<DesignAuditRepor
     audit_mass_properties(pack, &mut findings);
     audit_tank_volumes(pack, &mut findings)?;
     audit_subsystem_builders(pack, &mut findings)?;
-    audit_provenance(pack, manifest.schema_version, &mut findings);
+    audit_provenance(pack, &mut findings);
 
     Ok(DesignAuditReport {
         package_id: manifest.id.clone(),
@@ -151,11 +151,7 @@ fn audit_subsystem_builders(
     Ok(())
 }
 
-fn audit_provenance(
-    pack: &VerifiedSyspack,
-    schema_version: u32,
-    findings: &mut Vec<DesignFinding>,
-) {
+fn audit_provenance(pack: &VerifiedSyspack, findings: &mut Vec<DesignFinding>) {
     match pack.provenance_table() {
         Some(table) => {
             let count = table.iter().count();
@@ -170,15 +166,10 @@ fn audit_provenance(
                 detail: format!("loaded provenance source table ({count} entries)"),
             });
         }
-        None if schema_version >= 2 => findings.push(DesignFinding {
-            code: "PROVENANCE_TABLE".into(),
-            severity: FindingSeverity::Warning,
-            detail: "v2 vehicle declares no provenance_asset source table".into(),
-        }),
         None => findings.push(DesignFinding {
             code: "PROVENANCE_TABLE".into(),
-            severity: FindingSeverity::Pass,
-            detail: "v1 legacy manifest without provenance_asset".into(),
+            severity: FindingSeverity::Warning,
+            detail: "vehicle declares no provenance_asset source table".into(),
         }),
     }
 }

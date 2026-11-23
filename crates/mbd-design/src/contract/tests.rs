@@ -5,10 +5,10 @@ use syspack::{MemoryPackageSource, VerifiedSyspack, sha256_hex};
 
 use super::{FindingSeverity, audit_verified_syspack};
 
-fn build_v1_minimal() -> Value {
+fn build_minimal() -> Value {
     json!({
-        "schema_version": 1,
-        "id": "v1-craft",
+        "schema_version": 3,
+        "id": "minimal-craft",
         "name": "V1 Test Craft",
         "version": "1.0.0",
         "kind": "Spacecraft",
@@ -26,7 +26,7 @@ fn build_v1_minimal() -> Value {
             "thermal_capacity_j_k": 50_000.0,
             "nominal_power_w": 0.0
         }],
-        "dynamics": "RigidBodyVacuum",
+        "dynamics": {"MultibodyComposed": {"aero_elements": []}},
         "devices": []
     })
 }
@@ -41,19 +41,23 @@ fn load_with_provenance(manifest: Value, prov_bytes: Option<&[u8]>) -> VerifiedS
 }
 
 #[test]
-fn audits_v1_and_valid_v2_packages_as_passing() {
-    let v1 = load_with_provenance(build_v1_minimal(), None);
-    let r1 = audit_verified_syspack(&v1).unwrap();
+fn audits_packages_with_and_without_provenance_as_passing() {
+    let bare = load_with_provenance(build_minimal(), None);
+    let r1 = audit_verified_syspack(&bare).unwrap();
     assert!(r1.passed());
+    assert!(
+        r1.findings
+            .iter()
+            .any(|f| { f.code == "PROVENANCE_TABLE" && f.severity == FindingSeverity::Warning })
+    );
 
     let prov = br#"{"spec-1":{"document":"Orbital Tug ICD","tier":"operating_manual"}}"#;
-    let mut v2 = build_v1_minimal();
-    v2["schema_version"] = json!(2);
-    v2["assets"]["provenance.json"] = json!({
+    let mut tug = build_minimal();
+    tug["assets"]["provenance.json"] = json!({
         "sha256": sha256_hex(prov),
         "size_bytes": prov.len(),
     });
-    v2["subsystems"] = json!({
+    tug["subsystems"] = json!({
         "nominal_bus_voltage_v": 28.0,
         "tanks": [{
             "id": 1,
@@ -67,17 +71,16 @@ fn audits_v1_and_valid_v2_packages_as_passing() {
         }],
         "provenance_asset": "provenance.json"
     });
-    let pack = load_with_provenance(v2, Some(prov));
+    let pack = load_with_provenance(tug, Some(prov));
     let report = audit_verified_syspack(&pack).unwrap();
     assert!(report.passed());
 }
 
 #[test]
 fn flags_overpacked_tank_exceeding_physical_geometry_volume() {
-    let mut v2 = build_v1_minimal();
-    v2["schema_version"] = json!(2);
+    let mut tug = build_minimal();
     // Tiny 0.1 m radius sphere (~4.19 L) trying to hold 50 kg hydrazine -> impossible!
-    v2["subsystems"] = json!({
+    tug["subsystems"] = json!({
         "tanks": [{
             "id": 7,
             "site": "bus",
@@ -89,7 +92,7 @@ fn flags_overpacked_tank_exceeding_physical_geometry_volume() {
             "feed_regime": "BladderOrDiaphragm"
         }]
     });
-    let pack = load_with_provenance(v2, None);
+    let pack = load_with_provenance(tug, None);
     let report = audit_verified_syspack(&pack).unwrap();
     assert!(!report.passed());
     assert!(

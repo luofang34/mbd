@@ -1,7 +1,8 @@
-use glam::{DQuat, DVec3};
-use mbd_core::ComponentId;
+use glam::{DMat3, DQuat, DVec3};
+use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 
 use super::*;
+use crate::{FloatingBaseState, MultibodyModel, Workspace};
 
 #[test]
 fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
@@ -38,42 +39,46 @@ fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
         fluid_vel_world_m_s: DVec3::ZERO,
     };
 
+    let tree = ComponentTree::new([(
+        ComponentSpec {
+            name: "capsule".to_owned(),
+            placement: Placement::ROOT,
+            dry_mass_kg: 5_000.0,
+            dry_inertia_body: DMat3::from_diagonal(DVec3::splat(5_000.0)),
+            thermal_capacity_j_k: 1.0,
+            nominal_power_w: 0.0,
+            joint: JointSpec::FIXED,
+        },
+        ComponentState::at_temperature(293.15),
+    )])
+    .unwrap();
+    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let totals = |base: FloatingBaseState| {
+        let state = model.state(&tree, &base, &hydro, &water).unwrap();
+        let mut work = Workspace::new();
+        let kin = model.kinematics(&state, &mut work).unwrap();
+        hydro.totals(&kin, &water).unwrap()
+    };
+
     // High-speed entry splashdown crossing interface gives strong slamming deceleration!
-    let entry = hydro
-        .evaluate(
-            &FloatingBaseState {
-                position_world_m: DVec3::new(0.0, 0.0, -0.7),
-                rotation_world_from_root: DQuat::IDENTITY,
-                linear_vel_root_m_s: DVec3::new(0.0, 0.0, -10.0),
-                angular_vel_root_rad_s: DVec3::ZERO,
-            },
-            &water,
-        )
-        .unwrap();
+    let entry = totals(FloatingBaseState {
+        position_world_m: DVec3::new(0.0, 0.0, -0.7),
+        rotation_world_from_root: DQuat::IDENTITY,
+        linear_vel_root_m_s: DVec3::new(0.0, 0.0, -10.0),
+        angular_vel_root_rad_s: DVec3::ZERO,
+    });
     assert!(entry.total_drag_n > 400_000.0);
     assert!(entry.total_buoyancy_n > 30_000.0);
 
     // Floating tilted generates upright restoring roll torque from positive metacentric height!
-    let tilted = hydro
-        .evaluate(
-            &FloatingBaseState {
-                position_world_m: DVec3::new(0.0, 0.0, -0.3),
-                rotation_world_from_root: DQuat::from_rotation_x(0.25),
-                linear_vel_root_m_s: DVec3::ZERO,
-                angular_vel_root_rad_s: DVec3::ZERO,
-            },
-            &water,
-        )
-        .unwrap();
-    let net_moment_local: DVec3 = tilted
-        .wrenches
-        .iter()
-        .map(|w| w.point_local_m.cross(w.force_local_n))
-        .sum();
+    let tilted = totals(FloatingBaseState {
+        position_world_m: DVec3::new(0.0, 0.0, -0.3),
+        rotation_world_from_root: DQuat::from_rotation_x(0.25),
+        linear_vel_root_m_s: DVec3::ZERO,
+        angular_vel_root_rad_s: DVec3::ZERO,
+    });
     assert!(
-        net_moment_local.x < 0.0,
-        "righting moment opposes +x roll: {:?}, wrenches={:?}",
-        net_moment_local,
-        tilted.wrenches
+        tilted.moment_local_nm.x < 0.0,
+        "righting moment opposes +x roll: {tilted:?}"
     );
 }

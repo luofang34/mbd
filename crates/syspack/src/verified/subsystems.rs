@@ -1,7 +1,6 @@
 mod builders;
 
 use glam::DVec3;
-use mbd_aero::CompositeAeroModel;
 use mbd_multibody::{ManipulatorChain, MultibodyError, TireModelSpec, WheelSpec};
 use mbd_systems::{
     BatterySpec, BatteryState, ElectricalBus, FluidNetwork, PowerGeneratorKind, PowerGeneratorSpec,
@@ -220,23 +219,6 @@ impl VerifiedSyspack {
         Ok(net)
     }
 
-    /// Builds a validated [`CompositeAeroModel`] when `dynamics` is [`DynamicsSpec::MultibodyComposed`].
-    pub fn build_composite_aero(&self) -> Result<CompositeAeroModel, SyspackError> {
-        let DynamicsSpec::MultibodyComposed { aero_elements } = &self.manifest.dynamics else {
-            return Err(SyspackError::DynamicsMismatch {
-                operation: "build_composite_aero",
-                needed: "MultibodyComposed",
-                declared: self.manifest.dynamics.kind(),
-            });
-        };
-        let mut model = CompositeAeroModel::default();
-        for elem in aero_elements {
-            let comp = self.component_id(&elem.site)?;
-            model.push(comp, elem.kind.build()?);
-        }
-        Ok(model)
-    }
-
     /// Builds and validates all declared robotic manipulator kinematic chains against `self.tree()`.
     pub fn build_manipulators(&self) -> Result<Vec<(String, ManipulatorChain)>, SyspackError> {
         let mut out = Vec::with_capacity(self.manifest.subsystems.manipulators.len());
@@ -310,7 +292,7 @@ impl VerifiedSyspack {
             self.manifest.dynamics,
             DynamicsSpec::MultibodyComposed { .. }
         ) {
-            drop(self.build_composite_aero()?);
+            drop(self.build_aero_elements()?);
         }
         Ok(())
     }

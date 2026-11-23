@@ -1,7 +1,9 @@
 use core::f64::consts::PI;
 
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{check_finite_vec, check_positive, check_unit_vec, invalid};
 
@@ -97,19 +99,20 @@ impl RarefiedPanelAero {
     }
 }
 
-impl AeroModel for RarefiedPanelAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+impl RarefiedPanelAero {
+    /// Load on the link for the flow at it.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
         let p = &self.params;
         let rho = flow.ambient.density_kg_m3;
         let r_mix = flow.ambient.specific_gas_constant_j_kg_k();
         let t_inf = flow.ambient.temperature_k;
         let v_local =
-            flow.velocity_air_body_m_s + flow.angular_rate_body_rad_s.cross(p.center_body_m);
+            flow.velocity_air_link_m_s + flow.angular_rate_link_rad_s.cross(p.center_body_m);
         let speed = v_local.length();
         if rho == 0.0 || r_mix <= 0.0 || t_inf <= 0.0 || speed <= 1e-9 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.center_body_m,
+                reference_point_link_m: p.center_body_m,
                 ..AeroWrench::ZERO
             });
         }
@@ -133,9 +136,9 @@ impl AeroModel for RarefiedPanelAero {
         let q_fm = p.energy_accommodation * 0.5 * rho * speed * speed * speed * inc_area;
 
         Ok(AeroWrench {
-            reference_point_body_m: p.center_body_m,
-            force_body_n: force,
-            moment_ref_body_nm: DVec3::ZERO,
+            reference_point_link_m: p.center_body_m,
+            force_link_n: force,
+            moment_ref_link_nm: DVec3::ZERO,
             stagnation_heat_flux_w_m2: q_fm,
         })
     }

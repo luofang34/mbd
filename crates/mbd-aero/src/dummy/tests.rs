@@ -16,13 +16,13 @@ fn human_dummy_reaches_realistic_subsonic_terminal_velocity() {
     let sea_level = AmbientGas::earth_air(101_325.0, 288.15).unwrap();
     // ~95 kg suited cosmonaut => weight ~ 932 N; terminal speed ~ 45 m/s.
     let w = dummy
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::new(0.0, 0.0, 45.0),
-            angular_rate_body_rad_s: DVec3::X * 0.5,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::new(0.0, 0.0, 45.0),
+            angular_rate_link_rad_s: DVec3::X * 0.5,
             ambient: sea_level,
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap();
-    assert!((800.0..1_100.0).contains(&(-w.force_body_n.z)));
-    assert!(w.moment_ref_body_nm.x < 0.0);
+    assert!((800.0..1_100.0).contains(&(-w.force_link_n.z)));
+    assert!(w.moment_ref_link_nm.x < 0.0);
 }

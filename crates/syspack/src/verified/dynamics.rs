@@ -1,13 +1,10 @@
-use glam::DVec3;
-use mbd_aero::BluntCapsuleAero;
-use mbd_core::{AeroModel, VacuumAero};
+use mbd_aero::AeroElement;
 
 use super::VerifiedSyspack;
 use crate::{DynamicsSpec, SyspackError};
 
 const JSBSIM: &str = "JsbsimXml";
-const CAPSULE: &str = "RigidBodyBluntCapsule";
-const RIGID_BODY: &str = "rigid-body";
+const COMPOSED: &str = "MultibodyComposed";
 
 impl VerifiedSyspack {
     fn mismatch(&self, operation: &'static str, needed: &'static str) -> SyspackError {
@@ -18,45 +15,22 @@ impl VerifiedSyspack {
         }
     }
 
-    /// The aerodynamics of a rigid-body or composed multibody package.
-    pub fn build_aero_model(&self) -> Result<Box<dyn AeroModel>, SyspackError> {
-        match &self.manifest.dynamics {
-            DynamicsSpec::RigidBodyVacuum => Ok(Box::new(VacuumAero)),
-            DynamicsSpec::RigidBodyBluntCapsule { .. } => Ok(Box::new(self.capsule_aero()?)),
-            DynamicsSpec::MultibodyComposed { .. } => Ok(Box::new(self.build_composite_aero()?)),
-            DynamicsSpec::None
-            | DynamicsSpec::JsbsimXml { .. }
-            | DynamicsSpec::ExternalAdapter { .. } => {
-                Err(self.mismatch("build_aero_model", RIGID_BODY))
-            }
-        }
-    }
-
-    /// The capsule aerodynamics of a blunt-capsule package, as their concrete
-    /// type for callers that read the parameters back.
-    pub fn capsule_aero(&self) -> Result<BluntCapsuleAero, SyspackError> {
-        let DynamicsSpec::RigidBodyBluntCapsule {
-            base_radius_m,
-            nose_radius_m,
-            reference_point_body_m,
-            normal_force_slope,
-            axial_drag_coeff,
-            pitch_damping_coeff,
-            sutton_graves_k,
-        } = self.manifest.dynamics
-        else {
-            return Err(self.mismatch("capsule_aero", CAPSULE));
+    /// The aerodynamic elements of a composed multibody package, each
+    /// bound to the component its manifest record names. A vacuum vehicle
+    /// has none.
+    pub fn build_aero_elements(&self) -> Result<Vec<AeroElement>, SyspackError> {
+        let DynamicsSpec::MultibodyComposed { aero_elements } = &self.manifest.dynamics else {
+            return Err(self.mismatch("build_aero_elements", COMPOSED));
         };
-        BluntCapsuleAero::hypersonic_newtonian(
-            base_radius_m,
-            nose_radius_m,
-            DVec3::from_array(reference_point_body_m),
-            normal_force_slope,
-            axial_drag_coeff,
-            pitch_damping_coeff,
-            sutton_graves_k,
-        )
-        .map_err(SyspackError::InvalidAero)
+        aero_elements
+            .iter()
+            .map(|record| {
+                Ok(AeroElement::new(
+                    self.component_id(&record.site)?,
+                    record.kind.build()?,
+                ))
+            })
+            .collect()
     }
 
     /// The verified aircraft files as `(JSBSim virtual path, bytes)`, so a

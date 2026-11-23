@@ -6,12 +6,12 @@
 use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, DynamicMassContribution, JointSpec,
-    JointState, Placement,
+    JointState, Placement, WrenchAtSite,
 };
 use mbd_multibody::{
     DockingCapture, DockingPhase, DockingSpec, DockingState, FloatingBaseState, ForceElement,
-    HullStation, HydrodynamicsModel, LoopConstraint, MultiBodyDynamics, MultibodyModel, PortAnchor,
-    PortKinematics, Rk4, WaterState, Workspace, evaluate_loop_constraints,
+    HullStation, HydrodynamicsModel, JointLoadInput, LoopConstraint, MultiBodyDynamics,
+    MultibodyModel, PortAnchor, PortKinematics, Rk4, WaterState, Workspace,
 };
 
 fn part(parent: Option<u32>, at: DVec3, mass_kg: f64, joint: JointSpec) -> ComponentSpec {
@@ -131,14 +131,41 @@ fn loop_constraints_as_elements_match_their_tree_evaluation() {
             linear_damping_n_s_m: 20.0,
         },
     ];
-    let poses = tree.evaluate_pose_table().unwrap();
-    let direct = evaluate_loop_constraints(&tree, &poses, &constraints).unwrap();
-    assert_eq!(
-        direct.wrenches.len(),
-        4,
-        "both point constraints must be active"
-    );
-    let reference = accelerations(&tree, &base, &(direct.wrenches, direct.joint_loads), &());
+    // The loads the tree-side evaluation produced for this rover, recorded
+    // before that evaluation was folded into the element.
+    let wrench = |site, at: [f64; 3], f: [f64; 3]| WrenchAtSite {
+        site: ComponentId(site),
+        point_local_m: DVec3::from_array(at),
+        force_local_n: DVec3::from_array(f),
+        torque_local_nm: DVec3::ZERO,
+    };
+    let wrenches = vec![
+        wrench(
+            1,
+            [1.0, 0.0, 0.0],
+            [-1.9552300532214935, 43.77690009010112, 12.936958561619504],
+        ),
+        wrench(
+            2,
+            [1.0, 0.0, 0.0],
+            [-1.9552300532214884, -43.77690009010113, -12.936958561619502],
+        ),
+        wrench(
+            1,
+            [0.3, 0.0, 0.1],
+            [-5.384021318102016, 0.0, -30.519360609185327],
+        ),
+        wrench(
+            0,
+            [0.3, -0.5, 0.0],
+            [11.339960296776532, 0.0, 28.84136539789338],
+        ),
+    ];
+    let joint_loads = vec![
+        JointLoadInput::scalar(ComponentId(1), -49.0),
+        JointLoadInput::scalar(ComponentId(2), -49.0),
+    ];
+    let reference = accelerations(&tree, &base, &(wrenches, joint_loads), &());
     let as_elements = accelerations(&tree, &base, &constraints, &());
     // The element reads root-frame poses back from world kinematics, a
     // different but equivalent chain of rotations: rounding only.
@@ -173,11 +200,35 @@ fn hull_as_an_element_matches_its_base_state_evaluation() {
         fluid_density_kg_m3: 1_025.0,
         fluid_vel_world_m_s: DVec3::new(0.2, 0.0, 0.0),
     };
-    let direct = hull.evaluate(&base, &water).unwrap();
-    assert_eq!(direct.wrenches.len(), 2, "both stations must be wet");
-    let reference = accelerations(&tree, &base, &direct.wrenches, &());
+    // Station loads the base-state evaluation produced, recorded before it
+    // was folded into the element.
+    let station = |at: [f64; 3], f: [f64; 3]| WrenchAtSite {
+        site: ComponentId(0),
+        point_local_m: DVec3::from_array(at),
+        force_local_n: DVec3::from_array(f),
+        torque_local_nm: DVec3::ZERO,
+    };
+    let recorded = vec![
+        station(
+            [0.0, 0.0, 0.3],
+            [1821.466032344521, 1797.2703974874003, 12828.365770848452],
+        ),
+        station(
+            [0.0, 1.0, 0.1],
+            [512.0997035106157, 443.56979677140134, 3088.384739690477],
+        ),
+    ];
+    let reference = accelerations(&tree, &base, &recorded, &());
     let as_element = accelerations(&tree, &base, &hull, &water);
     assert_close(&as_element, &reference, 1e-12);
+    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let state = model.state(&tree, &base, &hull, &water).unwrap();
+    let mut work = Workspace::new();
+    let totals = hull
+        .totals(&model.kinematics(&state, &mut work).unwrap(), &water)
+        .unwrap();
+    assert!((totals.total_buoyancy_n - 16128.979901128469).abs() < 1e-9);
+    assert!((totals.total_drag_n - 429.6108667673827).abs() < 1e-9);
 }
 
 #[test]

@@ -28,14 +28,14 @@ fn apollo() -> BluntCapsuleAero {
     .unwrap()
 }
 
-fn flow(velocity_air_body_m_s: DVec3, density_kg_m3: f64) -> AeroFlowState {
+fn flow(velocity_air_link_m_s: DVec3, density_kg_m3: f64) -> LinkFlow<'static> {
     let mut ambient = AmbientGas::earth_air(30.0, 230.0).unwrap();
     ambient.density_kg_m3 = density_kg_m3;
-    AeroFlowState {
-        velocity_air_body_m_s,
-        angular_rate_body_rad_s: DVec3::ZERO,
+    LinkFlow {
+        velocity_air_link_m_s,
+        angular_rate_link_rad_s: DVec3::ZERO,
         ambient,
-        control_surfaces_rad: [0.0; 8],
+        controls: &[],
     }
 }
 
@@ -47,7 +47,7 @@ fn pitching_moment(alpha_rad: f64, cg_body_m: DVec3) -> f64 {
     apollo()
         .evaluate(&flow(at_alpha(alpha_rad), ENTRY_DENSITY_KG_M3))
         .unwrap()
-        .moment_about_cg(cg_body_m)
+        .moment_about(cg_body_m)
         .y
 }
 
@@ -86,8 +86,8 @@ fn trim_produces_apollo_lift_to_drag_and_dynamic_stability() {
         .evaluate(&flow(velocity, ENTRY_DENSITY_KG_M3))
         .unwrap();
     let along = velocity.normalize();
-    let drag = -wrench.force_body_n.dot(along);
-    let lift = wrench.force_body_n + along * drag;
+    let drag = -wrench.force_link_n.dot(along);
+    let lift = wrench.force_link_n + along * drag;
     let ld = lift.length() / drag;
     assert!((0.25..0.4).contains(&ld));
     assert!(lift.z < 0.0);
@@ -97,8 +97,8 @@ fn trim_produces_apollo_lift_to_drag_and_dynamic_stability() {
     let mut alpha = -0.5;
     for _ in 0..30_000 {
         let mut st = flow(at_alpha(alpha), ENTRY_DENSITY_KG_M3);
-        st.angular_rate_body_rad_s = DVec3::Y * rate;
-        let m = aero.evaluate(&st).unwrap().moment_about_cg(CG_OFFSET_M).y;
+        st.angular_rate_link_rad_s = DVec3::Y * rate;
+        let m = aero.evaluate(&st).unwrap().moment_about(CG_OFFSET_M).y;
         rate += m / 6_000.0 * 0.01;
         alpha += rate * 0.01;
     }
@@ -112,7 +112,7 @@ fn banking_and_axisymmetry_hold() {
         let q = DQuat::from_rotation_x(bank) * DQuat::from_rotation_y(trim);
         let vb = q.conjugate() * DVec3::X * ENTRY_SPEED_M_S;
         let w = apollo().evaluate(&flow(vb, ENTRY_DENSITY_KG_M3)).unwrap();
-        (q * w.force_body_n, w.moment_about_cg(CG_OFFSET_M))
+        (q * w.force_link_n, w.moment_about(CG_OFFSET_M))
     };
     let (up, _) = banked(0.0);
     let (right, _) = banked(FRAC_PI_2);
@@ -127,7 +127,7 @@ fn banking_and_axisymmetry_hold() {
     let rolled = apollo()
         .evaluate(&flow(spin * at_alpha(0.35), ENTRY_DENSITY_KG_M3))
         .unwrap();
-    assert!((rolled.force_body_n - spin * reference.force_body_n).length() < 1e-9 * 1e6);
+    assert!((rolled.force_link_n - spin * reference.force_link_n).length() < 1e-9 * 1e6);
 }
 
 #[test]
@@ -153,11 +153,11 @@ fn sutton_graves_adapts_from_gas_composition_when_unspecified() {
             .unwrap();
 
     let flux_mars = mars_shell
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::X * 5_500.0,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::X * 5_500.0,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: mars_gas,
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap()
         .stagnation_heat_flux_w_m2;
@@ -169,31 +169,31 @@ fn sutton_graves_adapts_from_gas_composition_when_unspecified() {
     let rarefied_gas = AmbientGas::earth_air(1e-4, 400.0).unwrap();
     assert!(rarefied_gas.knudsen_number(4.5) > 1.0);
     let w_rare = mars_shell
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::X * 7_000.0,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::X * 7_000.0,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: rarefied_gas,
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap();
     let q_rare = 0.5 * rarefied_gas.density_kg_m3 * 7_000.0_f64.powi(2) * PI * 2.25_f64.powi(2);
-    let cd_eff_rare = -w_rare.force_body_n.x / q_rare;
+    let cd_eff_rare = -w_rare.force_link_n.x / q_rare;
     assert!(cd_eff_rare > 1.7 && cd_eff_rare <= 2.15);
 
     // Subsonic regime uses subsonic_drag_coeff.
     let w_sub = mars_shell
-        .evaluate(&AeroFlowState {
-            velocity_air_body_m_s: DVec3::X * 60.0,
-            angular_rate_body_rad_s: DVec3::ZERO,
+        .evaluate(&LinkFlow {
+            velocity_air_link_m_s: DVec3::X * 60.0,
+            angular_rate_link_rad_s: DVec3::ZERO,
             ambient: AmbientGas::earth_air(101_325.0, 288.15).unwrap(),
-            control_surfaces_rad: [0.0; 8],
+            controls: &[],
         })
         .unwrap();
     let rho_sl = AmbientGas::earth_air(101_325.0, 288.15)
         .unwrap()
         .density_kg_m3;
     let q_sub = 0.5 * rho_sl * 60.0_f64.powi(2) * PI * 2.25_f64.powi(2);
-    let cd_eff_sub = -w_sub.force_body_n.x / q_sub;
+    let cd_eff_sub = -w_sub.force_link_n.x / q_sub;
     assert!((cd_eff_sub - 0.95).abs() < 1e-6);
     let _ = earth_gas;
 }

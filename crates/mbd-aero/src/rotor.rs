@@ -1,7 +1,9 @@
 use core::f64::consts::PI;
 
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, AmbientGas, MbdError};
+use mbd_core::{AmbientGas, MbdError};
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{
     check_finite, check_finite_vec, check_nonnegative, check_positive, check_unit_vec, invalid,
@@ -14,6 +16,20 @@ mod tests;
 /// element, covering fixed-pitch/constant-speed propellers (C172, P-38G),
 /// coaxial counter-rotating turboprops (Tu-95MS), and Mars `CO2` coaxial
 /// helicopters (Ingenuity).
+///
+/// # Validity
+///
+/// Blade sections are conventional airfoils with a linear lift slope, a
+/// stall clamp and a profile drag `cd0 + k/√Re`, whose second term follows
+/// laminar skin-friction scaling (Blasius, `C_f ∝ Re^-1/2`). Airfoil
+/// behaviour of that kind holds for section Reynolds numbers of order 10⁴
+/// and above; below it, laminar separation changes lift slope and stall in
+/// ways this model does not represent (Lissaman 1983, Annu. Rev. Fluid
+/// Mech. 15:223; Mueller & DeLaurier 2003, Annu. Rev. Fluid Mech. 35:89).
+/// The model does not clamp the Reynolds number: the friction term grows as
+/// Re falls, and [`RotorWrench::mean_reynolds`] reports where a disk
+/// operates so a host can check it. Insect-scale flapping is
+/// [`crate::FlappingWingAero`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotorBemParams {
     /// Outer blade tip radius, m.
@@ -48,9 +64,18 @@ pub struct RotorBemParams {
     pub shaft_axis_body: DVec3,
     /// Number of radial blade annuli (`4..=32`).
     pub radial_stations: u8,
+    /// Control channel carrying the rotor speed, rad/s. The host owns the
+    /// drive train and supplies the speed it computes.
+    pub omega_channel: usize,
+    /// Control channel carrying collective pitch, rad; zero without one.
+    pub collective_channel: Option<usize>,
+    /// Control channel carrying lateral cyclic pitch, rad.
+    pub cyclic_lat_channel: Option<usize>,
+    /// Control channel carrying longitudinal cyclic pitch, rad.
+    pub cyclic_lon_channel: Option<usize>,
 }
 
-/// Instantaneous control and spin state of a [`RotorBemAero`] disk.
+/// Spin and pitch commands of a [`RotorBemAero`] disk.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct RotorState {
     /// Rotor rotational speed magnitude, rad/s (`>= 0`).
@@ -94,14 +119,12 @@ pub struct RotorBemAero {
     axis: DVec3,
     e1: DVec3,
     e2: DVec3,
-    default_state: RotorState,
 }
 
 impl RotorBemAero {
     /// Validates geometry, radial discretization, and orientation basis.
-    pub fn new(params: RotorBemParams, default_state: RotorState) -> Result<Self, MbdError> {
+    pub fn new(params: RotorBemParams) -> Result<Self, MbdError> {
         validate_rotor_params(&params)?;
-        validate_rotor_state(&default_state)?;
         let axis = check_unit_vec("shaft_axis_body", params.shaft_axis_body)?;
         let (e1, e2) = orthonormal_disk_basis(axis);
         Ok(Self {
@@ -109,7 +132,6 @@ impl RotorBemAero {
             axis,
             e1,
             e2,
-            default_state,
         })
     }
 
@@ -122,7 +144,7 @@ impl RotorBemAero {
     /// mean Reynolds number, and shaft power for an arbitrary live [`RotorState`].
     pub fn evaluate_state(
         &self,
-        flow: &AeroFlowState,
+        flow: &LinkFlow<'_>,
         state: &RotorState,
     ) -> Result<RotorWrench, MbdError> {
         flow.validate()?;
@@ -131,7 +153,7 @@ impl RotorBemAero {
         if rho == 0.0 || state.omega_rad_s == 0.0 {
             return Ok(RotorWrench {
                 aero: AeroWrench {
-                    reference_point_body_m: self.params.hub_position_body_m,
+                    reference_point_link_m: self.params.hub_position_body_m,
                     ..AeroWrench::ZERO
                 },
                 shaft_power_w: 0.0,
@@ -141,7 +163,7 @@ impl RotorBemAero {
         }
         let p = &self.params;
         let v_hub =
-            flow.velocity_air_body_m_s + flow.angular_rate_body_rad_s.cross(p.hub_position_body_m);
+            flow.velocity_air_link_m_s + flow.angular_rate_link_rad_s.cross(p.hub_position_body_m);
         let v_axial = v_hub.dot(self.axis);
         let v_e1 = v_hub.dot(self.e1);
         let v_e2 = v_hub.dot(self.e2);
@@ -173,15 +195,15 @@ impl RotorBemAero {
             0.0
         };
         // Reaction torque opposes rotor spin; cyclic & advancing-retreating disk moments tilt thrust/hub.
-        let force_body_n = self.axis * acc.thrust - self.e1 * acc.h_e1 - self.e2 * acc.h_e2;
+        let force_link_n = self.axis * acc.thrust - self.e1 * acc.h_e1 - self.e2 * acc.h_e2;
         let torque_body_nm = -self.axis * (p.rotation_direction * acc.torque)
             + self.e1 * acc.moment_e1
             + self.e2 * acc.moment_e2;
         Ok(RotorWrench {
             aero: AeroWrench {
-                reference_point_body_m: p.hub_position_body_m,
-                force_body_n,
-                moment_ref_body_nm: torque_body_nm,
+                reference_point_link_m: p.hub_position_body_m,
+                force_link_n,
+                moment_ref_link_nm: torque_body_nm,
                 stagnation_heat_flux_w_m2: 0.0,
             },
             shaft_power_w: acc.torque * state.omega_rad_s,
@@ -245,10 +267,22 @@ impl RotorBemAero {
     }
 }
 
-impl AeroModel for RotorBemAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
-        self.evaluate_state(flow, &self.default_state)
-            .map(|res| res.aero)
+impl RotorBemAero {
+    /// The commands read from the flow's control channels.
+    pub fn commands(&self, flow: &LinkFlow<'_>) -> RotorState {
+        let p = &self.params;
+        RotorState {
+            omega_rad_s: flow.control(Some(p.omega_channel)),
+            collective_rad: flow.control(p.collective_channel),
+            cyclic_lat_rad: flow.control(p.cyclic_lat_channel),
+            cyclic_lon_rad: flow.control(p.cyclic_lon_channel),
+        }
+    }
+
+    /// Load, shaft power and blade diagnostics at the commands in the
+    /// flow's control channels.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<RotorWrench, MbdError> {
+        self.evaluate_state(flow, &self.commands(flow))
     }
 }
 
@@ -325,10 +359,17 @@ fn element_loads(
     };
     let beta = libm::sqrt((1.0 - mach_loc * mach_loc).clamp(0.15, 1.0));
     let cl = (p.cl_alpha * alpha / beta).clamp(-p.cl_max, p.cl_max);
+    // Inviscid gas or a section at rest: the laminar friction term has no
+    // meaning there and is left out.
     let re = if ambient.dynamic_viscosity_pa_s > 0.0 {
-        (ambient.density_kg_m3 * w * p.chord_m / ambient.dynamic_viscosity_pa_s).max(100.0)
+        ambient.density_kg_m3 * w * p.chord_m / ambient.dynamic_viscosity_pa_s
     } else {
-        1.0e5
+        f64::INFINITY
+    };
+    let friction_cd = if re > 0.0 {
+        p.low_re_drag_factor / libm::sqrt(re)
+    } else {
+        0.0
     };
     let wave_cd = if mach_loc > p.critical_tip_mach {
         let dm = (mach_loc - p.critical_tip_mach).min(0.6);
@@ -337,7 +378,7 @@ fn element_loads(
         0.0
     };
     let stall_cd = 1.6 * libm::sin(alpha) * libm::sin(alpha);
-    let cd = p.cd0_high_re + p.low_re_drag_factor / libm::sqrt(re) + stall_cd + wave_cd;
+    let cd = p.cd0_high_re + friction_cd + stall_cd + wave_cd;
     let factor = 0.5 * ambient.density_kg_m3 * w_sq * p.chord_m * dr * f64::from(p.blade_count);
     let (sin_phi, cos_phi) = libm::sincos(phi);
     let dt = factor * (cl * cos_phi - cd * sin_phi);

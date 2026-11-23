@@ -1,5 +1,7 @@
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{check_finite_vec, check_nonnegative, check_positive};
 
@@ -50,27 +52,28 @@ impl HumanDummyAero {
     }
 }
 
-impl AeroModel for HumanDummyAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+impl HumanDummyAero {
+    /// Load on the link for the flow at it.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
         let p = &self.params;
         let rho = flow.ambient.density_kg_m3;
-        let speed = flow.velocity_air_body_m_s.length();
+        let speed = flow.velocity_air_link_m_s.length();
         if rho == 0.0 || speed == 0.0 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.reference_point_body_m,
+                reference_point_link_m: p.reference_point_body_m,
                 ..AeroWrench::ZERO
             });
         }
         let q = 0.5 * rho * speed;
-        let force_body_n = -flow.velocity_air_body_m_s * (q * p.frontal_area_m2 * p.drag_coeff);
+        let force_link_n = -flow.velocity_air_link_m_s * (q * p.frontal_area_m2 * p.drag_coeff);
         let damp_scale =
             0.25 * rho * speed * p.frontal_area_m2 * p.reference_length_m * p.reference_length_m;
-        let moment_ref_body_nm = flow.angular_rate_body_rad_s * (damp_scale * p.damping_coeff);
+        let moment_ref_link_nm = flow.angular_rate_link_rad_s * (damp_scale * p.damping_coeff);
         Ok(AeroWrench {
-            reference_point_body_m: p.reference_point_body_m,
-            force_body_n,
-            moment_ref_body_nm,
+            reference_point_link_m: p.reference_point_body_m,
+            force_link_n,
+            moment_ref_link_nm,
             stagnation_heat_flux_w_m2: 0.0,
         })
     }

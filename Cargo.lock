@@ -134,6 +134,7 @@ dependencies = [
  "glam",
  "libm",
  "mbd-core",
+ "mbd-multibody",
 ]
 
 [[package]]

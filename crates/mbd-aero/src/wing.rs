@@ -1,11 +1,13 @@
 use core::f64::consts::PI;
 
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{
-    check_finite, check_finite_vec, check_nonnegative, check_positive, check_unit_vec,
-    control_slot, invalid, smoothstep01,
+    check_finite, check_finite_vec, check_nonnegative, check_positive, check_unit_vec, invalid,
+    smoothstep01,
 };
 
 #[cfg(test)]
@@ -96,7 +98,7 @@ impl WingSurfaceAero {
         &self.params
     }
 
-    fn coeffs(&self, alpha: f64, mach: f64, sweep: f64, flow: &AeroFlowState) -> (f64, f64, f64) {
+    fn coeffs(&self, alpha: f64, mach: f64, sweep: f64, flow: &LinkFlow<'_>) -> (f64, f64, f64) {
         let p = &self.params;
         let cos_sw = libm::cos(sweep).max(0.2);
         let m_n = mach * cos_sw;
@@ -107,8 +109,8 @@ impl WingSurfaceAero {
             let beta = libm::sqrt((1.0 - m_n * m_n).max(0.18));
             p.cl_alpha_incompressible * cos_sw / beta
         };
-        let fl = control_slot(flow, p.flap_channel);
-        let ail = control_slot(flow, p.aileron_channel);
+        let fl = flow.control(p.flap_channel);
+        let ail = flow.control(p.aileron_channel);
         let linear_cl = (p.cl0 + slope * alpha + p.flap_dcl * fl + p.aileron_dcl * ail)
             .clamp(-p.cl_max, p.cl_max);
         let post_stall_cl = 1.8 * libm::sin(2.0 * alpha);
@@ -134,19 +136,20 @@ impl WingSurfaceAero {
     }
 }
 
-impl AeroModel for WingSurfaceAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+impl WingSurfaceAero {
+    /// Load on the link for the flow at it.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
         let p = &self.params;
         let rho = flow.ambient.density_kg_m3;
         let v_ac =
-            flow.velocity_air_body_m_s + flow.angular_rate_body_rad_s.cross(p.ac_position_body_m);
+            flow.velocity_air_link_m_s + flow.angular_rate_link_rad_s.cross(p.ac_position_body_m);
         let a = v_ac.dot(self.e_chord);
         let b = v_ac.dot(self.e_lift);
         let v_plane_sq = a * a + b * b;
         if rho == 0.0 || v_plane_sq == 0.0 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.ac_position_body_m,
+                reference_point_link_m: p.ac_position_body_m,
                 ..AeroWrench::ZERO
             });
         }
@@ -157,18 +160,18 @@ impl AeroModel for WingSurfaceAero {
         } else {
             0.0
         };
-        let sweep = (p.sweep_quarter_chord_rad + control_slot(flow, p.sweep_control_channel))
-            .clamp(0.0, 1.35);
+        let sweep =
+            (p.sweep_quarter_chord_rad + flow.control(p.sweep_control_channel)).clamp(0.0, 1.35);
         let (cl, cd, cm) = self.coeffs(alpha, mach, sweep, flow);
         let q = 0.5 * rho * v_plane_sq;
         let u_drag = -(self.e_chord * a + self.e_lift * b) / v_plane;
         let u_lift = (self.e_lift * a - self.e_chord * b) / v_plane;
-        let force_body_n = q * p.area_m2 * (cl * u_lift + cd * u_drag);
-        let moment_ref_body_nm = self.e_pitch * (q * p.area_m2 * p.mean_chord_m * cm);
+        let force_link_n = q * p.area_m2 * (cl * u_lift + cd * u_drag);
+        let moment_ref_link_nm = self.e_pitch * (q * p.area_m2 * p.mean_chord_m * cm);
         Ok(AeroWrench {
-            reference_point_body_m: p.ac_position_body_m,
-            force_body_n,
-            moment_ref_body_nm,
+            reference_point_link_m: p.ac_position_body_m,
+            force_link_n,
+            moment_ref_link_nm,
             stagnation_heat_flux_w_m2: 0.0,
         })
     }

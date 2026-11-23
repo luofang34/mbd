@@ -2,6 +2,7 @@ use glam::{DMat3, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 
 use super::*;
+use crate::{FloatingBaseState, MultibodyModel, Workspace};
 
 fn link_spec(
     name: &str,
@@ -57,44 +58,43 @@ fn rocker_bogie_differential_and_weld_loops_conserve_internal_equilibrium() {
     sl.joint.q_scalar = 0.2;
     tree.set_state(ComponentId(1), sl).unwrap();
 
+    let constraints = [
+        LoopConstraint::JointRatio {
+            joint_a: ComponentId(1),
+            joint_b: ComponentId(2),
+            ratio: 1.0,
+            offset: 0.0,
+            stiffness: 500.0,
+            damping: 10.0,
+        },
+        LoopConstraint::UnilateralDistance {
+            site_a: ComponentId(1),
+            offset_a_m: DVec3::X,
+            site_b: ComponentId(2),
+            offset_b_m: DVec3::X,
+            max_length_m: 1.0,
+            stiffness_n_m: 1_000.0,
+            damping_n_s_m: 10.0,
+        },
+    ];
+    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let base = FloatingBaseState::AT_REST;
+    let state = model.state(&tree, &base, &constraints, &()).unwrap();
+    let mut work = Workspace::new();
+    let kin = model.kinematics(&state, &mut work).unwrap();
+
+    let joint_loads = constraints[0].joint_loads(&kin).unwrap().unwrap();
+    assert!(joint_loads[0].effort_scalar < 0.0);
+    assert!(joint_loads[1].effort_scalar < 0.0);
+    assert!(constraints[1].joint_loads(&kin).unwrap().is_none());
+
     let poses = tree.evaluate_pose_table().unwrap();
-    let out = evaluate_loop_constraints(
-        &tree,
-        &poses,
-        &[
-            LoopConstraint::JointRatio {
-                joint_a: ComponentId(1),
-                joint_b: ComponentId(2),
-                ratio: 1.0,
-                offset: 0.0,
-                stiffness: 500.0,
-                damping: 10.0,
-            },
-            LoopConstraint::UnilateralDistance {
-                site_a: ComponentId(1),
-                offset_a_m: DVec3::X,
-                site_b: ComponentId(2),
-                offset_b_m: DVec3::X,
-                max_length_m: 1.0,
-                stiffness_n_m: 1_000.0,
-                damping_n_s_m: 10.0,
-            },
-        ],
-    )
-    .unwrap();
-
-    assert_eq!(out.joint_loads.len(), 2);
-    assert!(out.joint_loads[0].effort_scalar < 0.0);
-    assert!(out.joint_loads[1].effort_scalar < 0.0);
-
-    let net_root: (DVec3, DVec3) =
-        out.wrenches
-            .iter()
-            .fold((DVec3::ZERO, DVec3::ZERO), |(f, m), w| {
-                let p = poses.get(w.site).unwrap();
-                let (fr, mr) = w.to_root_wrench(p, DVec3::ZERO);
-                (f + fr, m + mr)
-            });
+    let pair = constraints[1].wrench_pair(&kin).unwrap().unwrap();
+    let net_root = pair.iter().fold((DVec3::ZERO, DVec3::ZERO), |(f, m), w| {
+        let p = poses.get(w.site).unwrap();
+        let (fr, mr) = w.to_root_wrench(p, DVec3::ZERO);
+        (f + fr, m + mr)
+    });
     assert!(net_root.0.length() < 1e-12);
     assert!(net_root.1.length() < 1e-12);
 }

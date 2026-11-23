@@ -1,5 +1,5 @@
 use glam::DVec3;
-use mbd_core::{AeroFlowState, MbdError};
+use mbd_core::MbdError;
 
 pub(crate) fn invalid(field: &'static str, value: f64) -> MbdError {
     MbdError::InvalidAeroParameter { field, value }
@@ -38,12 +38,6 @@ pub(crate) fn check_unit_vec(field: &'static str, vec: DVec3) -> Result<DVec3, M
         return Ok(vec.normalize());
     }
     Err(invalid(field, vec.length()))
-}
-
-pub(crate) fn control_slot(flow: &AeroFlowState, channel: Option<usize>) -> f64 {
-    channel
-        .and_then(|idx| flow.control_surfaces_rad.get(idx).copied())
-        .unwrap_or(0.0)
 }
 
 pub(crate) fn smoothstep01(x: f64) -> f64 {

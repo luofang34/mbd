@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    DeviceKindSpec, DynamicsSpec, InstrumentPackRef, MIN_SCHEMA_VERSION, MountedDeviceSpec,
-    SCHEMA_VERSION, SyspackManifest, SystemKind,
+    DeviceKindSpec, DynamicsSpec, InstrumentPackRef, MountedDeviceSpec, SCHEMA_VERSION,
+    SyspackManifest, SystemKind,
 };
 use crate::SyspackError;
 use crate::instrument_pack::INSTRUMENTS_ASSET;
@@ -57,7 +57,7 @@ pub(crate) fn require(field: &'static str, value: &str) -> Result<(), SyspackErr
 impl SyspackManifest {
     /// Checks everything that can be judged from the manifest alone.
     pub(super) fn validate(&self) -> Result<(), SyspackError> {
-        if !(MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&self.schema_version) {
+        if self.schema_version != SCHEMA_VERSION {
             return Err(SyspackError::UnsupportedSchema {
                 found: self.schema_version,
                 expected: SCHEMA_VERSION,

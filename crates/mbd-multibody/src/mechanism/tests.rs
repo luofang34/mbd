@@ -7,7 +7,6 @@ use mbd_core::{
 };
 
 use super::*;
-use crate::aba::tests::stepping::{StageForces, step_rk4_with_loads};
 use crate::aba::{FloatingBaseState, MultiBodyDynamics};
 
 fn m_spec(
@@ -144,35 +143,34 @@ fn rail_slide_release_ejects_seat_and_conserves_momentum() {
         catapult_force_n: 12_000.0,
         guide_friction_n: 200.0,
     };
-    let mut rst = RailSlideState {
-        fired: true,
-        released: false,
+    // The rail as a force element, fired from the start and stepped until
+    // its end-of-travel latch sets.
+    let slide = RailSlide {
+        spec: rail,
+        fire: true,
     };
-    let mut rbase = FloatingBaseState::AT_REST;
-    let init_r = MultiBodyDynamics::system_momentum(&rtree, &[], &rbase).unwrap();
+    let model = crate::MultibodyModel::new(&rtree, &[]).unwrap();
+    let start = FloatingBaseState::AT_REST;
+    let init_r = MultiBodyDynamics::system_momentum(&rtree, &[], &start).unwrap();
+    let mut state = model.state(&rtree, &start, &slide, &()).unwrap();
+    let mut work = crate::Workspace::new();
+    let mut rk4 = crate::Rk4::new();
     let mut ready = false;
-    for _ in 0..40 {
-        let out = step_rail_drive(&rail, &mut rst, &rtree).unwrap();
-        if out.ready_to_release {
+    for k in 0..400 {
+        let t = f64::from(k) * 0.001;
+        model
+            .advance(&mut rk4, &slide, &(), &mut state, t, 0.001, &mut work)
+            .unwrap();
+        if RailSlideState::from_modes(state.modes()).ready_to_release {
             ready = true;
             break;
         }
-        let forces = StageForces {
-            joint_drives: out.drive.into_iter().collect(),
-            joint_loads: out.load.into_iter().collect(),
-            ..StageForces::default()
-        };
-        rbase = step_rk4_with_loads::<crate::MultibodyError, _>(
-            &mut rtree,
-            &[],
-            &rbase,
-            0.01,
-            |_, _, _| Ok(forces.clone()),
-        )
-        .unwrap();
     }
     assert!(ready);
-    let ejected = release_from_rail(&rail, &mut rst, &rtree, &[], &rbase).unwrap();
+    assert!(RailSlideState::from_modes(state.modes()).fired);
+    model.write_joints(&state, &mut rtree).unwrap();
+    let rbase = state.base();
+    let ejected = release_from_rail(&rail, &rtree, &[], &rbase).unwrap();
     let (pr, lr) = combine_momentum(
         &ejected.parent_tree,
         &ejected.parent_masses,
@@ -421,4 +419,80 @@ fn tether_models_vostok_burn_through_and_sky_crane_autocut() {
     }
     assert!(!sst.intact);
     assert_eq!(sst.cut_reason, Some(TetherCutReason::TouchdownAutoCut));
+}
+
+#[test]
+fn hinged_panel_opens_only_when_unlatched_and_latches_at_its_release_angle() {
+    let tree = ComponentTree::new([
+        (
+            m_spec(
+                "adapter",
+                None,
+                DVec3::ZERO,
+                1_800.0,
+                DVec3::splat(900.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "sla_panel",
+                Some(ComponentId(0)),
+                DVec3::new(0.0, 2.0, 0.0),
+                120.0,
+                DVec3::new(60.0, 10.0, 60.0),
+                JointSpec::revolute(DVec3::X, -0.1, 2.0),
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    let spec = HingeSwingSpec {
+        component: ComponentId(1),
+        release_angle_rad: 0.8,
+        spring_torque_nm: 400.0,
+        damper_nm_s_rad: 20.0,
+    };
+    let model = crate::MultibodyModel::new(&tree, &[]).unwrap();
+    let base = FloatingBaseState::AT_REST;
+    let mut work = crate::Workspace::new();
+    let run = |unlatch: bool, work: &mut crate::Workspace| {
+        let panel = HingeRelease { spec, unlatch };
+        let mut state = model.state(&tree, &base, &panel, &()).unwrap();
+        let mut rk4 = crate::Rk4::new();
+        for k in 0..2_000 {
+            let t = f64::from(k) * 1e-3;
+            model
+                .advance(&mut rk4, &panel, &(), &mut state, t, 1e-3, work)
+                .unwrap();
+            if HingeSwingState::from_modes(state.modes()).ready_to_release {
+                break;
+            }
+        }
+        state
+    };
+    let latched = run(false, &mut work);
+    assert_eq!(
+        model
+            .joint_state(&latched, ComponentId(1))
+            .unwrap()
+            .q_scalar,
+        0.0
+    );
+    assert_eq!(
+        HingeSwingState::from_modes(latched.modes()),
+        HingeSwingState::default()
+    );
+    let opened = run(true, &mut work);
+    let st = HingeSwingState::from_modes(opened.modes());
+    assert!(st.unlatched && st.ready_to_release);
+    let angle = model.joint_state(&opened, ComponentId(1)).unwrap().q_scalar;
+    // The latch sets at the first accepted boundary past the angle: within
+    // one step of travel.
+    assert!((0.8..0.85).contains(&angle), "{angle}");
+    // The spring acts between panel and adapter only: no net momentum.
+    let p = model.system_momentum(&opened, &mut work).unwrap();
+    assert!(p.linear_world_kg_m_s.length() < 1e-9);
+    assert!(p.angular_about_com_world_nms.length() < 1e-9);
 }

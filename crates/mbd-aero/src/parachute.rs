@@ -1,5 +1,7 @@
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{
     check_finite_vec, check_nonnegative, check_positive, check_unit_vec, invalid, smoothstep01,
@@ -32,9 +34,23 @@ pub struct ParachuteParams {
     pub wake_velocity_ratio: f64,
     /// Rotational aerodynamic damping coefficient of the suspended canopy.
     pub rotational_damping_coeff: f64,
+    /// Dynamic pressure at which the canopy fills with time constant
+    /// `inflation_time_constant_s`, Pa.
+    pub reference_dynamic_pressure_pa: f64,
+    /// Control channel whose positive value fires the mortar; the
+    /// deployment latches at the next accepted step boundary.
+    pub deploy_channel: Option<usize>,
+    /// Control channel carrying the reefing area fraction in `0..=1`; a
+    /// disreefed canopy without one.
+    pub reefing_channel: Option<usize>,
+    /// Whether the canopy is already deployed when the state is created.
+    pub deployed_at_start: bool,
+    /// Inflation fraction when the state is created, `0..=1`.
+    pub inflation_at_start: f64,
 }
 
-/// Live deployment, reefing, and inflation state of a [`ParachuteCanopyAero`].
+/// Deployment, reefing and inflation of a [`ParachuteCanopyAero`] at one
+/// instant: the argument of its pure load function.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParachuteState {
     /// Whether the mortar/drogue has fired and lines are out.
@@ -60,12 +76,11 @@ impl Default for ParachuteState {
 pub struct ParachuteCanopyAero {
     params: ParachuteParams,
     axis: DVec3,
-    default_state: ParachuteState,
 }
 
 impl ParachuteCanopyAero {
-    /// Validates parameters and initial canopy state.
-    pub fn new(params: ParachuteParams, default_state: ParachuteState) -> Result<Self, MbdError> {
+    /// Validates parameters and the canopy's starting state.
+    pub fn new(params: ParachuteParams) -> Result<Self, MbdError> {
         check_positive("nominal_area_m2", params.nominal_area_m2)?;
         check_nonnegative("cd_subsonic", params.cd_subsonic)?;
         check_nonnegative("cd_supersonic", params.cd_supersonic)?;
@@ -83,40 +98,61 @@ impl ParachuteCanopyAero {
             return Err(invalid("wake_velocity_ratio", params.wake_velocity_ratio));
         }
         check_nonnegative("rotational_damping_coeff", params.rotational_damping_coeff)?;
-        validate_parachute_state(&default_state)?;
-        Ok(Self {
-            params,
-            axis,
-            default_state,
-        })
+        check_positive(
+            "reference_dynamic_pressure_pa",
+            params.reference_dynamic_pressure_pa,
+        )?;
+        validate_parachute_state(&ParachuteState {
+            deployed: params.deployed_at_start,
+            inflation_fraction: params.inflation_at_start,
+            reefing_area_fraction: 1.0,
+        })?;
+        Ok(Self { params, axis })
     }
 
-    /// Advances canopy inflation smoothly toward `1.0` over step `dt_s`.
-    pub fn step_inflation(
-        &self,
-        state: &mut ParachuteState,
-        dt_s: f64,
-        dynamic_pressure_pa: f64,
-    ) -> Result<(), MbdError> {
-        validate_parachute_state(state)?;
-        check_nonnegative("dt_s", dt_s)?;
-        check_nonnegative("dynamic_pressure_pa", dynamic_pressure_pa)?;
-        if !state.deployed || dt_s == 0.0 {
-            return Ok(());
+    /// Rate of the inflation fraction, 1/s: a deployed canopy fills
+    /// toward full at `(1 − f)·k(q)/τ`, where `k = √(q/q_ref)` clamped to
+    /// `0.5..=2` makes a canopy at higher dynamic pressure fill faster.
+    pub fn inflation_rate(&self, state: &ParachuteState, dynamic_pressure_pa: f64) -> f64 {
+        if !state.deployed {
+            return 0.0;
         }
-        // Higher dynamic pressure inflates faster (capped gently to avoid harsh impulses).
-        let pressure_scale = libm::sqrt((dynamic_pressure_pa / 200.0).clamp(0.25, 4.0));
-        let rate = pressure_scale / self.params.inflation_time_constant_s;
-        state.inflation_fraction = (state.inflation_fraction
-            + (1.0 - state.inflation_fraction) * (1.0 - libm::exp(-rate * dt_s)))
-        .clamp(0.0, 1.0);
-        Ok(())
+        let p = &self.params;
+        let pressure_scale =
+            libm::sqrt((dynamic_pressure_pa / p.reference_dynamic_pressure_pa).clamp(0.25, 4.0));
+        (1.0 - state.inflation_fraction) * pressure_scale / p.inflation_time_constant_s
+    }
+
+    /// Dynamic pressure the canopy sees: the wake-reduced flow at the riser
+    /// attachment, Pa.
+    pub fn canopy_dynamic_pressure_pa(&self, flow: &LinkFlow<'_>) -> f64 {
+        let v = self.canopy_velocity(flow);
+        0.5 * flow.ambient.density_kg_m3 * v.length_squared()
+    }
+
+    fn canopy_velocity(&self, flow: &LinkFlow<'_>) -> DVec3 {
+        flow.velocity_air_link_m_s * self.params.wake_velocity_ratio
+            + flow
+                .angular_rate_link_rad_s
+                .cross(self.params.riser_attach_body_m)
+    }
+
+    /// Reefing area fraction commanded in the flow's control channels.
+    pub fn reefing_fraction(&self, flow: &LinkFlow<'_>) -> f64 {
+        self.params
+            .reefing_channel
+            .map_or(1.0, |ch| flow.control(Some(ch)))
+    }
+
+    /// Whether the flow's control channels command deployment.
+    pub fn deploy_commanded(&self, flow: &LinkFlow<'_>) -> bool {
+        flow.control(self.params.deploy_channel) > 0.0
     }
 
     /// Evaluates parachute forces and moments for an arbitrary live [`ParachuteState`].
     pub fn evaluate_state(
         &self,
-        flow: &AeroFlowState,
+        flow: &LinkFlow<'_>,
         state: &ParachuteState,
     ) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
@@ -124,21 +160,20 @@ impl ParachuteCanopyAero {
         let p = &self.params;
         if !state.deployed || flow.ambient.density_kg_m3 == 0.0 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.riser_attach_body_m,
+                reference_point_link_m: p.riser_attach_body_m,
                 ..AeroWrench::ZERO
             });
         }
-        let v = flow.velocity_air_body_m_s * p.wake_velocity_ratio
-            + flow.angular_rate_body_rad_s.cross(p.riser_attach_body_m);
+        let v = self.canopy_velocity(flow);
         let speed = v.length();
         if speed == 0.0 {
             return Ok(AeroWrench {
-                reference_point_body_m: p.riser_attach_body_m,
+                reference_point_link_m: p.riser_attach_body_m,
                 ..AeroWrench::ZERO
             });
         }
         let mach = if flow.ambient.sound_speed_m_s > 0.0 {
-            flow.velocity_air_body_m_s.length() / flow.ambient.sound_speed_m_s
+            flow.velocity_air_link_m_s.length() / flow.ambient.sound_speed_m_s
         } else {
             0.0
         };
@@ -163,12 +198,12 @@ impl ParachuteCanopyAero {
             * diameter
             * diameter
             * p.rotational_damping_coeff
-            * flow.angular_rate_body_rad_s;
+            * flow.angular_rate_link_rad_s;
 
         Ok(AeroWrench {
-            reference_point_body_m: p.riser_attach_body_m,
-            force_body_n: total_force,
-            moment_ref_body_nm: damp,
+            reference_point_link_m: p.riser_attach_body_m,
+            force_link_n: total_force,
+            moment_ref_link_nm: damp,
             stagnation_heat_flux_w_m2: 0.0,
         })
     }
@@ -176,12 +211,6 @@ impl ParachuteCanopyAero {
     /// Validated configuration parameters.
     pub const fn params(&self) -> &ParachuteParams {
         &self.params
-    }
-}
-
-impl AeroModel for ParachuteCanopyAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
-        self.evaluate_state(flow, &self.default_state)
     }
 }
 

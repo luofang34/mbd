@@ -6,7 +6,7 @@ const SHA: &str = "0000000000000000000000000000000000000000000000000000000000000
 
 fn typeface_pack() -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "us-ms33558",
         "name": "MS33558 instrument dial lettering",
         "version": "1.0.0",

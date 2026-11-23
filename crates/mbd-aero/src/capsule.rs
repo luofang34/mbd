@@ -1,7 +1,9 @@
 use core::f64::consts::PI;
 
 use glam::DVec3;
-use mbd_core::{AeroFlowState, AeroModel, AeroWrench, MbdError};
+use mbd_core::MbdError;
+
+use crate::flow::{AeroWrench, LinkFlow};
 
 use crate::validation::{
     check_finite, check_finite_vec, check_nonnegative, check_positive, invalid, smoothstep01,
@@ -105,7 +107,7 @@ impl BluntCapsuleAero {
         &self.params
     }
 
-    fn effective_coeffs(&self, flow: &AeroFlowState, speed: f64, length: f64) -> (f64, f64) {
+    fn effective_coeffs(&self, flow: &LinkFlow<'_>, speed: f64, length: f64) -> (f64, f64) {
         let p = &self.params;
         let mach = if flow.ambient.sound_speed_m_s > 0.0 {
             speed / flow.ambient.sound_speed_m_s
@@ -136,33 +138,34 @@ impl BluntCapsuleAero {
     }
 }
 
-impl AeroModel for BluntCapsuleAero {
-    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+impl BluntCapsuleAero {
+    /// Load on the link for the flow at it.
+    pub fn evaluate(&self, flow: &LinkFlow<'_>) -> Result<AeroWrench, MbdError> {
         flow.validate()?;
         let params = &self.params;
         let density = flow.ambient.density_kg_m3;
-        let velocity = flow.velocity_air_body_m_s;
+        let velocity = flow.velocity_air_link_m_s;
         let speed = velocity.length();
         let area = PI * params.base_radius_m * params.base_radius_m;
         let length = 2.0 * params.base_radius_m;
         let (ca, cn_slope) = self.effective_coeffs(flow, speed, length);
 
         let transverse_velocity = DVec3::new(0.0, velocity.y, velocity.z);
-        let force_body_n = -(0.5 * density * area * velocity.x.abs())
+        let force_link_n = -(0.5 * density * area * velocity.x.abs())
             * (DVec3::X * (ca * velocity.x) + transverse_velocity * cn_slope);
 
-        let rate = flow.angular_rate_body_rad_s;
+        let rate = flow.angular_rate_link_rad_s;
         let transverse_rate = DVec3::new(0.0, rate.y, rate.z);
-        let moment_ref_body_nm = transverse_rate
+        let moment_ref_link_nm = transverse_rate
             * (0.25 * density * speed * area * length * length * params.pitch_damping_coeff);
 
         let sg_k = params
             .sutton_graves_k
             .unwrap_or_else(|| flow.ambient.sutton_graves_k());
         Ok(AeroWrench {
-            reference_point_body_m: params.reference_point_body_m,
-            force_body_n,
-            moment_ref_body_nm,
+            reference_point_link_m: params.reference_point_body_m,
+            force_link_n,
+            moment_ref_link_nm,
             stagnation_heat_flux_w_m2: sg_k
                 * libm::sqrt(density / params.nose_radius_m)
                 * speed
