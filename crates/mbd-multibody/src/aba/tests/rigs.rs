@@ -8,7 +8,8 @@ use mbd_core::{
     WrenchAtSite,
 };
 
-use crate::{FloatingBaseState, JointDriveInput, MultibodyError, step_rk4_with_forces};
+use super::stepping::step_rk4_with_forces;
+use crate::{FloatingBaseState, JointDriveInput, MultibodyError};
 
 /// Mass and isotropic inertia of the quasi-fixed ground body. Every link in
 /// these rigs is O(1) kg, so the ground's reaction motion is O(1e-12)

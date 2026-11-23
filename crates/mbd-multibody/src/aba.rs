@@ -1,19 +1,18 @@
 use alloc::vec::Vec;
 
 use glam::{DQuat, DVec3};
-use mbd_core::{ComponentId, WrenchAtSite};
+use mbd_core::ComponentId;
 
 use crate::spatial::SpatialMotion;
 
-mod articulated;
-mod chain;
-mod integrator;
+pub(crate) mod articulated;
+pub(crate) mod chain;
+pub(crate) mod rigid;
 mod solver;
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
-pub use integrator::{step_rk4, step_rk4_with_forces, step_rk4_with_loads};
 pub use solver::MultiBodyDynamics;
 
 /// Full 6-DoF rigid pose and body-frame spatial velocity of a floating base
@@ -110,19 +109,6 @@ impl JointLoadInput {
             force_3d_n: DVec3::ZERO,
         }
     }
-}
-
-/// Everything a stage callback of [`step_rk4_with_loads`] supplies.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct StageForces {
-    /// Uniform gravity in world axes, m/s².
-    pub gravity_world_m_s2: DVec3,
-    /// Actuator commands, limited per joint by the actuator.
-    pub joint_drives: Vec<JointDriveInput>,
-    /// Constraint and mechanism joint loads, never limited.
-    pub joint_loads: Vec<JointLoadInput>,
-    /// External wrenches at component sites.
-    pub external_wrenches: Vec<WrenchAtSite>,
 }
 
 /// Joint-space acceleration resolved by [`MultiBodyDynamics::forward_dynamics`].

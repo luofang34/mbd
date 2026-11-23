@@ -4,6 +4,7 @@ use mbd_core::{
     JointState, Placement, WrenchAtSite,
 };
 
+use self::stepping::{step_rk4, step_rk4_with_forces};
 use super::*;
 
 mod compliant_joint;
@@ -16,10 +17,12 @@ mod joint_stops;
 mod pendulum;
 mod rigid_fast_path;
 mod rigs;
+mod rk4_reference;
 mod scale_invariance;
 mod small_links;
 mod spherical_joint;
 mod spherical_pendulum;
+pub(crate) mod stepping;
 mod stop_response;
 
 fn part_spec(

@@ -8,7 +8,8 @@ use mbd_core::{ComponentId, ComponentTree, JointSpec, JointState, Placement};
 use super::rigs::{
     OPEN_CONE_RAD, diag, ground, hinge_z, idle, joint_of, part, point_mass, posed, run_on_ground,
 };
-use crate::{FloatingBaseState, MultibodyError, step_rk4, step_rk4_with_forces};
+use super::stepping::{step_rk4, step_rk4_with_forces};
+use crate::{FloatingBaseState, MultibodyError};
 
 /// Orders from successive error ratios. Asymptotic RK4 gives 4; 3.6..4.4
 /// admits the higher-order terms still visible at the coarsest step while

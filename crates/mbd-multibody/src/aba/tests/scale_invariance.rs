@@ -7,7 +7,8 @@ use glam::{DQuat, DVec3};
 use mbd_core::{ComponentId, ComponentTree, JointSpec, JointState, Placement};
 
 use super::rigs::{WIDE_RAD, diag, idle, joint_of, part, posed};
-use crate::{FloatingBaseState, JointDriveInput, MultibodyError, step_rk4};
+use super::stepping::step_rk4;
+use crate::{FloatingBaseState, JointDriveInput, MultibodyError};
 
 /// Characteristic length (m), mass (kg) and time (s).
 #[derive(Clone, Copy, Debug)]

@@ -1,10 +1,15 @@
+//! Closed kinematic loops as penalty constraints: balanced internal joint
+//! loads and wrench pairs that are pure functions of pose and velocity.
+
 use alloc::vec::Vec;
 
 use glam::DVec3;
-use mbd_core::{ComponentId, ComponentTree, JointKind, PoseTable, WrenchAtSite};
+use mbd_core::{ComponentId, ComponentTree, JointKind, LinkPose, PoseTable, WrenchAtSite};
 
 use crate::MultibodyError;
 use crate::aba::JointLoadInput;
+use crate::element::{ElementContext, ForceElement};
+use crate::model::Loads;
 
 #[cfg(test)]
 mod tests;
@@ -81,79 +86,37 @@ pub fn evaluate_loop_constraints(
     constraints: &[LoopConstraint],
 ) -> Result<LoopOutput, MultibodyError> {
     let mut out = LoopOutput::default();
-    for &constraint in constraints {
-        match constraint {
+    for constraint in constraints {
+        match *constraint {
             LoopConstraint::JointRatio {
-                joint_a,
-                joint_b,
-                ratio,
-                offset,
-                stiffness,
-                damping,
+                joint_a, joint_b, ..
             } => {
                 if !tree.is_attached(joint_a)? || !tree.is_attached(joint_b)? {
                     continue;
                 }
-                check_1dof(tree, joint_a)?;
-                check_1dof(tree, joint_b)?;
+                check_1dof(joint_a, tree.spec(joint_a)?.joint.kind)?;
+                check_1dof(joint_b, tree.spec(joint_b)?.joint.kind)?;
                 let qa = tree.state(joint_a)?.joint;
                 let qb = tree.state(joint_b)?.joint;
-                let err = (qa.q_scalar + ratio * qb.q_scalar) - offset;
-                let err_dot = qa.q_vel_scalar + ratio * qb.q_vel_scalar;
-                let force_eq = -(stiffness * err + damping * err_dot);
-                out.joint_loads
-                    .push(JointLoadInput::scalar(joint_a, force_eq));
-                out.joint_loads
-                    .push(JointLoadInput::scalar(joint_b, force_eq * ratio));
+                let coords = (qa.q_scalar, qa.q_vel_scalar, qb.q_scalar, qb.q_vel_scalar);
+                out.joint_loads.extend(constraint.ratio_loads(coords));
             }
-            LoopConstraint::PointWeld {
-                site_a,
-                offset_a_m,
-                site_b,
-                offset_b_m,
-                linear_stiffness_n_m,
-                linear_damping_n_s_m,
-            } => {
-                eval_bilateral_weld(
-                    poses,
-                    site_a,
-                    offset_a_m,
-                    site_b,
-                    offset_b_m,
-                    linear_stiffness_n_m,
-                    linear_damping_n_s_m,
-                    &mut out.wrenches,
-                )?;
-            }
-            LoopConstraint::UnilateralDistance {
-                site_a,
-                offset_a_m,
-                site_b,
-                offset_b_m,
-                max_length_m,
-                stiffness_n_m,
-                damping_n_s_m,
-            } => {
-                eval_unilateral_dist(
-                    poses,
-                    site_a,
-                    offset_a_m,
-                    site_b,
-                    offset_b_m,
-                    max_length_m,
-                    stiffness_n_m,
-                    damping_n_s_m,
-                    &mut out.wrenches,
-                )?;
+            LoopConstraint::PointWeld { site_a, site_b, .. }
+            | LoopConstraint::UnilateralDistance { site_a, site_b, .. } => {
+                let (pa, pb) = (poses.get(site_a)?, poses.get(site_b)?);
+                if pa.attached && pb.attached {
+                    out.wrenches
+                        .extend(constraint.point_pair(pa, pb).into_iter().flatten());
+                }
             }
         }
     }
     Ok(out)
 }
 
-fn check_1dof(tree: &ComponentTree, id: ComponentId) -> Result<(), MultibodyError> {
+fn check_1dof(id: ComponentId, kind: JointKind) -> Result<(), MultibodyError> {
     if matches!(
-        tree.spec(id)?.joint.kind,
+        kind,
         JointKind::Revolute { .. } | JointKind::Prismatic { .. }
     ) {
         return Ok(());
@@ -161,85 +124,133 @@ fn check_1dof(tree: &ComponentTree, id: ComponentId) -> Result<(), MultibodyErro
     Err(MultibodyError::WrongJointKind { id })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn eval_bilateral_weld(
-    poses: &PoseTable,
-    site_a: ComponentId,
-    offset_a_m: DVec3,
-    site_b: ComponentId,
-    offset_b_m: DVec3,
-    stiffness: f64,
-    damping: f64,
-    wrenches: &mut Vec<WrenchAtSite>,
-) -> Result<(), MultibodyError> {
-    let pa = poses.get(site_a)?;
-    let pb = poses.get(site_b)?;
-    if !pa.attached || !pb.attached {
-        return Ok(());
+impl LoopConstraint {
+    /// Balanced joint loads of a [`LoopConstraint::JointRatio`] at joint
+    /// coordinates and rates `(q_a, q̇_a, q_b, q̇_b)`; empty for other kinds.
+    fn ratio_loads(&self, (qa, qa_dot, qb, qb_dot): (f64, f64, f64, f64)) -> [JointLoadInput; 2] {
+        let Self::JointRatio {
+            joint_a,
+            joint_b,
+            ratio,
+            offset,
+            stiffness,
+            damping,
+        } = *self
+        else {
+            return [JointLoadInput::scalar(ComponentId(0), 0.0); 2];
+        };
+        let err = (qa + ratio * qb) - offset;
+        let err_dot = qa_dot + ratio * qb_dot;
+        let force_eq = -(stiffness * err + damping * err_dot);
+        [
+            JointLoadInput::scalar(joint_a, force_eq),
+            JointLoadInput::scalar(joint_b, force_eq * ratio),
+        ]
     }
-    let ra = pa.rotation_root_from_link * offset_a_m;
-    let rb = pb.rotation_root_from_link * offset_b_m;
-    let xa = pa.position_root_m + ra;
-    let xb = pb.position_root_m + rb;
-    let va = pa.linear_vel_root_m_s + pa.angular_vel_root_rad_s.cross(ra);
-    let vb = pb.linear_vel_root_m_s + pb.angular_vel_root_rad_s.cross(rb);
-    // Spring pulls A toward B.
-    let f_on_a_root = (xb - xa) * stiffness + (vb - va) * damping;
-    push_balanced_pair(pa, offset_a_m, pb, offset_b_m, f_on_a_root, wrenches);
-    Ok(())
+
+    /// Equal-and-opposite wrench pair of a point constraint between links at
+    /// root-frame poses `pa` and `pb`; `None` for a joint constraint or a
+    /// slack unilateral one.
+    fn point_pair(&self, pa: &LinkPose, pb: &LinkPose) -> Option<[WrenchAtSite; 2]> {
+        let (off_a, off_b) = match *self {
+            Self::PointWeld {
+                offset_a_m,
+                offset_b_m,
+                ..
+            }
+            | Self::UnilateralDistance {
+                offset_a_m,
+                offset_b_m,
+                ..
+            } => (offset_a_m, offset_b_m),
+            Self::JointRatio { .. } => return None,
+        };
+        let ra = pa.rotation_root_from_link * off_a;
+        let rb = pb.rotation_root_from_link * off_b;
+        let delta = (pb.position_root_m + rb) - (pa.position_root_m + ra);
+        let va = pa.linear_vel_root_m_s + pa.angular_vel_root_rad_s.cross(ra);
+        let vb = pb.linear_vel_root_m_s + pb.angular_vel_root_rad_s.cross(rb);
+        let f_on_a_root = match *self {
+            // Spring pulls A toward B.
+            Self::PointWeld {
+                linear_stiffness_n_m,
+                linear_damping_n_s_m,
+                ..
+            } => delta * linear_stiffness_n_m + (vb - va) * linear_damping_n_s_m,
+            Self::UnilateralDistance {
+                max_length_m,
+                stiffness_n_m,
+                damping_n_s_m,
+                ..
+            } => {
+                let dist = delta.length();
+                if dist <= max_length_m || dist == 0.0 {
+                    return None;
+                }
+                let dir = delta / dist;
+                let v_rel = (vb - va).dot(dir);
+                dir * ((dist - max_length_m) * stiffness_n_m + v_rel * damping_n_s_m).max(0.0)
+            }
+            Self::JointRatio { .. } => return None,
+        };
+        Some([
+            WrenchAtSite {
+                site: pa.id,
+                point_local_m: off_a,
+                force_local_n: pa.rotation_root_from_link.conjugate() * f_on_a_root,
+                torque_local_nm: DVec3::ZERO,
+            },
+            WrenchAtSite {
+                site: pb.id,
+                point_local_m: off_b,
+                force_local_n: pb.rotation_root_from_link.conjugate() * (-f_on_a_root),
+                torque_local_nm: DVec3::ZERO,
+            },
+        ])
+    }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn eval_unilateral_dist(
-    poses: &PoseTable,
-    site_a: ComponentId,
-    offset_a_m: DVec3,
-    site_b: ComponentId,
-    offset_b_m: DVec3,
-    max_length_m: f64,
-    stiffness: f64,
-    damping: f64,
-    wrenches: &mut Vec<WrenchAtSite>,
-) -> Result<(), MultibodyError> {
-    let pa = poses.get(site_a)?;
-    let pb = poses.get(site_b)?;
-    if !pa.attached || !pb.attached {
-        return Ok(());
+/// A loop constraint is a stateless force element: its loads depend on the
+/// evaluated state alone.
+impl<I: ?Sized> ForceElement<I> for LoopConstraint {
+    fn evaluate(
+        &self,
+        ctx: &ElementContext<'_, I>,
+        _state: &[f64],
+        _modes: &[f64],
+        loads: &mut Loads<'_>,
+        _state_dot: &mut [f64],
+    ) -> Result<(), MultibodyError> {
+        let kin = ctx.kinematics;
+        match *self {
+            Self::JointRatio {
+                joint_a, joint_b, ..
+            } => {
+                if !kin.is_attached(joint_a) || !kin.is_attached(joint_b) {
+                    return Ok(());
+                }
+                check_1dof(joint_a, kin.joint_kind(joint_a)?)?;
+                check_1dof(joint_b, kin.joint_kind(joint_b)?)?;
+                let (qa, qb) = (kin.joint(joint_a)?, kin.joint(joint_b)?);
+                let coords = (qa.q_scalar, qa.q_vel_scalar, qb.q_scalar, qb.q_vel_scalar);
+                for load in self.ratio_loads(coords) {
+                    loads.add_joint_load(&load)?;
+                }
+            }
+            Self::PointWeld { site_a, site_b, .. }
+            | Self::UnilateralDistance { site_a, site_b, .. } => {
+                if !kin.is_attached(site_a) || !kin.is_attached(site_b) {
+                    return Ok(());
+                }
+                let (pa, pb) = (
+                    kin.link_pose_in_root(site_a)?,
+                    kin.link_pose_in_root(site_b)?,
+                );
+                for wrench in self.point_pair(&pa, &pb).iter().flatten() {
+                    loads.add_wrench(wrench)?;
+                }
+            }
+        }
+        Ok(())
     }
-    let ra = pa.rotation_root_from_link * offset_a_m;
-    let rb = pb.rotation_root_from_link * offset_b_m;
-    let delta = (pb.position_root_m + rb) - (pa.position_root_m + ra);
-    let dist = delta.length();
-    if dist <= max_length_m || dist == 0.0 {
-        return Ok(());
-    }
-    let dir = delta / dist;
-    let va = pa.linear_vel_root_m_s + pa.angular_vel_root_rad_s.cross(ra);
-    let vb = pb.linear_vel_root_m_s + pb.angular_vel_root_rad_s.cross(rb);
-    let v_rel = (vb - va).dot(dir);
-    let tension = ((dist - max_length_m) * stiffness + v_rel * damping).max(0.0);
-    push_balanced_pair(pa, offset_a_m, pb, offset_b_m, dir * tension, wrenches);
-    Ok(())
-}
-
-fn push_balanced_pair(
-    pa: &mbd_core::LinkPose,
-    off_a: DVec3,
-    pb: &mbd_core::LinkPose,
-    off_b: DVec3,
-    f_on_a_root: DVec3,
-    wrenches: &mut Vec<WrenchAtSite>,
-) {
-    wrenches.push(WrenchAtSite {
-        site: pa.id,
-        point_local_m: off_a,
-        force_local_n: pa.rotation_root_from_link.conjugate() * f_on_a_root,
-        torque_local_nm: DVec3::ZERO,
-    });
-    wrenches.push(WrenchAtSite {
-        site: pb.id,
-        point_local_m: off_b,
-        force_local_n: pb.rotation_root_from_link.conjugate() * (-f_on_a_root),
-        torque_local_nm: DVec3::ZERO,
-    });
 }

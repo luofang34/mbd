@@ -1,86 +1,98 @@
+//! Link chain of a component tree: the topology and constants prepared once,
+//! and the per-evaluation link records the articulated-body passes consume.
+
 use alloc::vec;
 use alloc::vec::Vec;
 
 use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, DynamicMassContribution, JointKind,
-    MbdError, WrenchAtSite,
+    JointSpec, JointState, MbdError, Placement,
 };
 
-use super::{FloatingBaseState, JointDriveInput, JointLoadInput};
+use super::FloatingBaseState;
 use crate::MultibodyError;
+use crate::model::layout::LinkSlots;
 use crate::spatial::{SpatialForce, SpatialMat6, SpatialMotion, SpatialTransform, outer3};
 
-/// Every joint-space effort source handed to one forward-dynamics call.
-#[derive(Clone, Copy)]
-pub(super) struct JointEfforts<'a> {
-    /// Actuator commands: summed per joint, then limited by the actuator.
-    pub(super) drives: &'a [JointDriveInput],
-    /// Constraint, spring and mechanism loads: summed and never limited.
-    pub(super) loads: &'a [JointLoadInput],
-}
-
 /// Net applied joint effort in placed axes, before passive terms.
-#[derive(Clone, Copy, Default)]
-struct AppliedEffort {
-    scalar: f64,
-    torque: DVec3,
-    force: DVec3,
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct AppliedEffort {
+    pub(crate) scalar: f64,
+    pub(crate) torque: DVec3,
+    pub(crate) force: DVec3,
 }
 
-impl JointEfforts<'_> {
-    pub(super) const NONE: JointEfforts<'static> = JointEfforts {
-        drives: &[],
-        loads: &[],
-    };
-
-    fn applied_to(&self, id: ComponentId, spec: &ComponentSpec) -> AppliedEffort {
-        let mut cmd = AppliedEffort::default();
-        for d in self.drives.iter().filter(|d| d.component == id) {
-            cmd.scalar += d.effort_scalar;
-            cmd.torque += d.torque_3d_nm;
-            cmd.force += d.force_3d_n;
-        }
-        if let Some(act) = spec.joint.actuator {
-            cmd.scalar = cmd.scalar.clamp(-act.max_effort, act.max_effort);
-        }
-        for l in self.loads.iter().filter(|l| l.component == id) {
-            cmd.scalar += l.effort_scalar;
-            cmd.torque += l.torque_3d_nm;
-            cmd.force += l.force_3d_n;
-        }
-        cmd
-    }
+/// One attached link: everything about it that does not change while the
+/// tree's topology and mass stay fixed.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct PreparedLink {
+    pub(crate) id: ComponentId,
+    pub(crate) parent_order: Option<usize>,
+    pub(crate) placement: Placement,
+    pub(crate) joint: JointSpec,
+    pub(crate) slots: LinkSlots,
+    pub(crate) mass_kg: f64,
+    pub(crate) cg_local_m: DVec3,
+    pub(crate) inertia_cg_local: DMat3,
+    pub(crate) i_local: SpatialMat6,
 }
 
-pub(super) struct LinkData {
-    pub(super) id: ComponentId,
-    pub(super) parent_order: Option<usize>,
-    pub(super) x_parent_from_child: SpatialTransform,
-    pub(super) i_local: SpatialMat6,
-    pub(super) v_j_child: SpatialMotion,
-    pub(super) s_1dof: SpatialMotion,
-    pub(super) q_j_rot: DQuat,
-    pub(super) tau_1dof: f64,
-    pub(super) tau_3d_child: DVec3,
-    pub(super) force_3d_child: DVec3,
+/// Pose and motion of one link at one state.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct LinkFrame {
+    pub(crate) joint: JointState,
+    pub(crate) x_parent_from_child: SpatialTransform,
+    pub(crate) q_j_rot: DQuat,
+    pub(crate) v_j_child: SpatialMotion,
+    /// World-from-link rotation.
+    pub(crate) r_world: DMat3,
+    /// Link origin in world axes, m.
+    pub(crate) p_world: DVec3,
+    /// Absolute spatial velocity in link axes.
+    pub(crate) v: SpatialMotion,
+}
+
+/// Link record for one forward-dynamics solve.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct LinkData {
+    pub(crate) id: ComponentId,
+    pub(crate) parent_order: Option<usize>,
+    pub(crate) x_parent_from_child: SpatialTransform,
+    /// Inertia that gravity acts on.
+    pub(crate) i_local: SpatialMat6,
+    /// Inertia that resists acceleration: `i_local` plus any added inertia.
+    pub(crate) i_inertial: SpatialMat6,
+    pub(crate) v_j_child: SpatialMotion,
+    pub(crate) s_1dof: SpatialMotion,
+    pub(crate) q_j_rot: DQuat,
+    pub(crate) tau_1dof: f64,
+    pub(crate) tau_3d_child: DVec3,
+    pub(crate) force_3d_child: DVec3,
     /// Travel-stop acceleration demand along `s_1dof`; the inward pass turns
     /// it into a torque with the joint's articulated inertia.
-    pub(super) stop_accel_1dof: f64,
+    pub(crate) stop_accel_1dof: f64,
     /// Spherical cone-stop angular acceleration demand, child axes.
-    pub(super) stop_accel_child: DVec3,
-    pub(super) ext_force_local: SpatialForce,
-    pub(super) mass_kg: f64,
-    pub(super) cg_local_m: DVec3,
-    pub(super) inertia_cg_local: DMat3,
-    pub(super) kind: JointKind,
+    pub(crate) stop_accel_child: DVec3,
+    pub(crate) ext_force_local: SpatialForce,
+    pub(crate) kind: JointKind,
 }
 
-pub(super) fn validate_inputs(
-    base_state: &FloatingBaseState,
-    gravity_world: DVec3,
-    dynamic_masses: &[DynamicMassContribution],
-) -> Result<(), MultibodyError> {
+/// Everything applied to one link during one evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub(crate) struct LinkLoads {
+    /// Summed actuator commands, limited by the actuator before use.
+    pub(crate) drive: AppliedEffort,
+    /// Summed unlimited joint loads, absent while none was added so that an
+    /// unloaded joint's command is used exactly as limited.
+    pub(crate) load: Option<AppliedEffort>,
+    /// Summed external wrench about the link origin, link axes.
+    pub(crate) wrench: SpatialForce,
+    /// Added inertia about the link origin, link axes.
+    pub(crate) added_inertia: Option<SpatialMat6>,
+}
+
+pub(crate) fn validate_base(base_state: &FloatingBaseState) -> Result<(), MultibodyError> {
     if !base_state.position_world_m.is_finite() {
         return Err(MultibodyError::InvalidParameter {
             field: "position_world_m",
@@ -102,29 +114,20 @@ pub(super) fn validate_inputs(
             value: 0.0,
         });
     }
-    if !gravity_world.is_finite() {
-        return Err(MultibodyError::InvalidParameter {
-            field: "gravity_world_m_s2",
-            value: gravity_world.length(),
-        });
-    }
-    for m in dynamic_masses {
-        m.validate()?;
-    }
     Ok(())
 }
 
-pub(super) fn build_link_chain(
+/// Attached links of `tree` in parent-before-child order, with the chain
+/// position of every component id.
+pub(crate) fn prepare_links(
     tree: &ComponentTree,
     dynamic_masses: &[DynamicMassContribution],
-    efforts: JointEfforts<'_>,
-    wrenches: &[WrenchAtSite],
-) -> Result<Vec<LinkData>, MultibodyError> {
-    let poses = tree.evaluate_pose_table()?;
-    let order = topological_attached_ids(tree, &poses)?;
-    if order.is_empty() {
-        return Err(MultibodyError::Mbd(MbdError::NoAttachedMass));
+    slots: &[LinkSlots],
+) -> Result<(Vec<PreparedLink>, Vec<Option<usize>>), MultibodyError> {
+    for m in dynamic_masses {
+        m.validate()?;
     }
+    let order = attached_order(tree)?;
     let mut id_to_order = vec![None; tree.len()];
     for (pos, &id) in order.iter().enumerate() {
         if let Some(slot) = id_to_order.get_mut(id.0 as usize) {
@@ -149,20 +152,40 @@ pub(super) fn build_link_chain(
         if pos == 0 && !matches!(spec.joint.kind, JointKind::Fixed) {
             return Err(MultibodyError::NonFixedRootJoint { id });
         }
-        links.push(build_one_link(
+        let (mass_kg, cg_local_m, inertia_cg_local) =
+            combine_link_mass(id, spec, state, dynamic_masses);
+        links.push(PreparedLink {
             id,
             parent_order,
-            spec,
-            state,
-            dynamic_masses,
-            &efforts,
-            wrenches,
-        )?);
+            placement: spec.placement,
+            joint: spec.joint,
+            slots: slots.get(pos).copied().unwrap_or_default(),
+            mass_kg,
+            cg_local_m,
+            inertia_cg_local,
+            i_local: SpatialMat6::from_rigid_inertia(mass_kg, cg_local_m, inertia_cg_local),
+        });
     }
-    for w in wrenches {
-        tree.spec(w.site)?;
+    Ok((links, id_to_order))
+}
+
+/// Joint kinds of the attached links of `tree`, in chain order.
+pub(crate) fn attached_joint_kinds(tree: &ComponentTree) -> Result<Vec<JointKind>, MultibodyError> {
+    let order = attached_order(tree)?;
+    let mut kinds = Vec::with_capacity(order.len());
+    for id in order {
+        kinds.push(tree.spec(id)?.joint.kind);
     }
-    Ok(links)
+    Ok(kinds)
+}
+
+fn attached_order(tree: &ComponentTree) -> Result<Vec<ComponentId>, MultibodyError> {
+    let poses = tree.evaluate_pose_table()?;
+    let order = topological_attached_ids(tree, &poses)?;
+    if order.is_empty() {
+        return Err(MultibodyError::Mbd(MbdError::NoAttachedMass));
+    }
+    Ok(order)
 }
 
 fn topological_attached_ids(
@@ -197,48 +220,23 @@ fn topological_attached_ids(
     Ok(order)
 }
 
-fn build_one_link(
-    id: ComponentId,
-    parent_order: Option<usize>,
-    spec: &ComponentSpec,
-    state: &ComponentState,
+/// Recomputes the mass properties of `link` from the tree's current masses.
+pub(crate) fn refresh_link_mass(
+    link: &mut PreparedLink,
+    tree: &ComponentTree,
     dynamic_masses: &[DynamicMassContribution],
-    efforts: &JointEfforts<'_>,
-    wrenches: &[WrenchAtSite],
-) -> Result<LinkData, MultibodyError> {
-    let (j_trans, j_rot) = spec.joint.local_transform(&state.joint)?;
-    let (j_vel, j_omega) = spec.joint.local_velocity(&state.joint);
-    let q_p_from_c = (spec.placement.rotation * j_rot).normalize();
-    let p_c_in_p = spec.placement.translation_m + spec.placement.rotation * j_trans;
-    let x_parent_from_child = SpatialTransform::from_pos_quat(p_c_in_p, q_p_from_c);
-    let j_rot_inv = j_rot.conjugate();
-    let v_j_child = SpatialMotion::new(j_rot_inv * j_omega, j_rot_inv * j_vel);
-
-    let (mass_kg, cg_local_m, inertia_cg_local) =
-        combine_link_mass(id, spec, state, dynamic_masses);
-    let i_local = SpatialMat6::from_rigid_inertia(mass_kg, cg_local_m, inertia_cg_local);
-    let ext_force_local = sum_link_external_wrenches(id, wrenches);
-    let effort = joint_effort(spec, state, j_rot, efforts.applied_to(id, spec));
-
-    Ok(LinkData {
-        id,
-        parent_order,
-        x_parent_from_child,
-        i_local,
-        v_j_child,
-        s_1dof: effort.s_1dof,
-        q_j_rot: j_rot,
-        tau_1dof: effort.tau_1dof,
-        tau_3d_child: j_rot_inv * effort.torque_placed,
-        force_3d_child: j_rot_inv * effort.force_placed,
-        stop_accel_1dof: effort.stop_1dof,
-        stop_accel_child: j_rot_inv * effort.stop_placed,
-        ext_force_local,
-        mass_kg,
-        cg_local_m,
-        inertia_cg_local,
-        kind: spec.joint.kind,
-    })
+) -> Result<(), MultibodyError> {
+    let (mass_kg, cg, inertia) = combine_link_mass(
+        link.id,
+        tree.spec(link.id)?,
+        tree.state(link.id)?,
+        dynamic_masses,
+    );
+    link.mass_kg = mass_kg;
+    link.cg_local_m = cg;
+    link.inertia_cg_local = inertia;
+    link.i_local = SpatialMat6::from_rigid_inertia(mass_kg, cg, inertia);
+    Ok(())
 }
 
 fn combine_link_mass(
@@ -271,6 +269,93 @@ fn combine_link_mass(
     (total_m, cg, total_i)
 }
 
+/// Pose and velocity of `link` at joint state `joint`, given its parent's
+/// frame, or the base state for the root.
+pub(crate) fn link_frame(
+    link: &PreparedLink,
+    joint: JointState,
+    parent: Option<&LinkFrame>,
+    base: &FloatingBaseState,
+) -> Result<LinkFrame, MultibodyError> {
+    let (j_trans, j_rot) = link.joint.local_transform(&joint)?;
+    let (j_vel, j_omega) = link.joint.local_velocity(&joint);
+    let q_p_from_c = (link.placement.rotation * j_rot).normalize();
+    let p_c_in_p = link.placement.translation_m + link.placement.rotation * j_trans;
+    let x_parent_from_child = SpatialTransform::from_pos_quat(p_c_in_p, q_p_from_c);
+    let j_rot_inv = j_rot.conjugate();
+    let v_j_child = SpatialMotion::new(j_rot_inv * j_omega, j_rot_inv * j_vel);
+    let (r_world, p_world, v) = match parent {
+        Some(p) => (
+            p.r_world * x_parent_from_child.r_parent_from_child,
+            p.p_world + p.r_world * x_parent_from_child.p_child_in_parent,
+            x_parent_from_child.apply_motion_to_child(p.v) + v_j_child,
+        ),
+        None => (
+            DMat3::from_quat(base.rotation_world_from_root),
+            base.position_world_m,
+            base.spatial_velocity_root(),
+        ),
+    };
+    Ok(LinkFrame {
+        joint,
+        x_parent_from_child,
+        q_j_rot: j_rot,
+        v_j_child,
+        r_world,
+        p_world,
+        v,
+    })
+}
+
+/// Which joint-space terms a solve includes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EffortTerms {
+    /// Applied efforts, actuator limits, passive springs and dampers, stops.
+    Full,
+    /// Applied efforts only, unlimited: the map from generalized force to
+    /// acceleration with every state-dependent term removed.
+    AppliedOnly,
+}
+
+/// Assembles the solve record of `link` from its frame and applied loads.
+pub(crate) fn assemble_link(
+    link: &PreparedLink,
+    frame: &LinkFrame,
+    loads: &LinkLoads,
+    terms: EffortTerms,
+) -> LinkData {
+    let mut applied = loads.drive;
+    if let (Some(act), EffortTerms::Full) = (link.joint.actuator, terms) {
+        applied.scalar = applied.scalar.clamp(-act.max_effort, act.max_effort);
+    }
+    if let Some(load) = loads.load {
+        applied.scalar += load.scalar;
+        applied.torque += load.torque;
+        applied.force += load.force;
+    }
+    let effort = joint_effort(&link.joint, &frame.joint, frame.q_j_rot, applied, terms);
+    let j_rot_inv = frame.q_j_rot.conjugate();
+    LinkData {
+        id: link.id,
+        parent_order: link.parent_order,
+        x_parent_from_child: frame.x_parent_from_child,
+        i_local: link.i_local,
+        i_inertial: loads
+            .added_inertia
+            .map_or(link.i_local, |added| link.i_local + added),
+        v_j_child: frame.v_j_child,
+        s_1dof: effort.s_1dof,
+        q_j_rot: frame.q_j_rot,
+        tau_1dof: effort.tau_1dof,
+        tau_3d_child: j_rot_inv * effort.torque_placed,
+        force_3d_child: j_rot_inv * effort.force_placed,
+        stop_accel_1dof: effort.stop_1dof,
+        stop_accel_child: j_rot_inv * effort.stop_placed,
+        ext_force_local: loads.wrench,
+        kind: link.joint.kind,
+    }
+}
+
 /// Joint-space generalized efforts and stop demand of one link, in placed axes.
 #[derive(Default)]
 struct JointEffort {
@@ -283,24 +368,27 @@ struct JointEffort {
 }
 
 fn joint_effort(
-    spec: &ComponentSpec,
-    state: &ComponentState,
+    spec: &JointSpec,
+    js: &JointState,
     j_rot: DQuat,
     applied: AppliedEffort,
+    terms: EffortTerms,
 ) -> JointEffort {
-    let js = &state.joint;
-    let stop = spec.joint.stop;
-    let passive = spec.joint.actuator.map_or(0.0, |a| {
-        -a.stiffness * js.q_scalar - a.damping * js.q_vel_scalar
-    });
+    let full = terms == EffortTerms::Full;
+    let stop = spec.stop;
+    let passive = match spec.actuator {
+        Some(a) if full => -a.stiffness * js.q_scalar - a.damping * js.q_vel_scalar,
+        _ => 0.0,
+    };
     let scalar = |s_1dof, min: f64, max: f64| JointEffort {
         s_1dof,
         tau_1dof: applied.scalar + passive,
         stop_1dof: overrun(js.q_scalar, min, max)
+            .filter(|_| full)
             .map_or(0.0, |over| stop.accel_demand(over, js.q_vel_scalar)),
         ..JointEffort::default()
     };
-    match spec.joint.kind {
+    match spec.kind {
         JointKind::Fixed => JointEffort::default(),
         JointKind::Revolute {
             axis,
@@ -314,7 +402,7 @@ fn joint_effort(
             cone_half_angle_rad,
         } => {
             let (ax, angle) = j_rot.to_axis_angle();
-            let stop_placed = if angle > cone_half_angle_rad {
+            let stop_placed = if full && angle > cone_half_angle_rad {
                 stop.accel_demand_vec(-ax * (angle - cone_half_angle_rad), js.angular_vel_rad_s)
             } else {
                 DVec3::ZERO
@@ -325,6 +413,11 @@ fn joint_effort(
                 ..JointEffort::default()
             }
         }
+        JointKind::Compliant6Dof { .. } if !full => JointEffort {
+            torque_placed: applied.torque,
+            force_placed: applied.force,
+            ..JointEffort::default()
+        },
         JointKind::Compliant6Dof {
             linear_stiffness_n_m,
             linear_damping_n_s_m,
@@ -351,17 +444,4 @@ fn overrun(q: f64, min: f64, max: f64) -> Option<f64> {
     } else {
         None
     }
-}
-
-fn sum_link_external_wrenches(id: ComponentId, wrenches: &[WrenchAtSite]) -> SpatialForce {
-    let mut total = SpatialForce::ZERO;
-    for w in wrenches {
-        if w.site == id {
-            total += SpatialForce::new(
-                w.torque_local_nm + w.point_local_m.cross(w.force_local_n),
-                w.force_local_n,
-            );
-        }
-    }
-    total
 }

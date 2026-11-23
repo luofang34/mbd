@@ -5,88 +5,17 @@ use mbd_core::{
     ComponentId, ComponentTree, DynamicMassContribution, JointSpec, JointState, Placement,
 };
 
+mod capture;
+
+pub use capture::{
+    DockingCapture, DockingEvaluation, DockingPhase, DockingSpec, DockingState, DockingTransition,
+    PortAnchor, PortKinematics,
+};
+
 use super::release::{ImpulseReleaseResult, execute_impulse_release, remap_masses};
 use crate::MultibodyError;
 use crate::aba::{FloatingBaseState, MultiBodyDynamics};
 use crate::spatial::SpatialForce;
-
-/// Phases of an orbital rendezvous & docking / capture mechanism (`DockingCapture`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DockingPhase {
-    /// Mechanisms open and ready outside contact envelope.
-    Open,
-    /// Soft-capture ring in compliant 6-DoF spring-damper contact.
-    SoftContact,
-    /// Relative motion settled below threshold; ready for probe retraction.
-    SoftDamped,
-    /// Retracting capture ring to bring structural docking latches flush.
-    Retracting,
-    /// Structurally hard-mated (`graft_subtree` locked into single multibody tree).
-    HardLatched,
-    /// Unlatched and pushing apart under undocking spring impulse.
-    Undocking,
-}
-
-/// Configuration for compliant soft-to-hard spacecraft docking capture.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DockingSpec {
-    /// Lateral capture envelope radius, m.
-    pub capture_radius_m: f64,
-    /// Angular alignment tolerance inside capture envelope, rad.
-    pub capture_angle_rad: f64,
-    /// Maximum axial closing speed accepted for capture, m/s.
-    pub max_closing_speed_m_s: f64,
-    /// Velocity threshold below which soft capture enters [`DockingPhase::SoftDamped`], m/s.
-    pub damping_vel_threshold_m_s: f64,
-    /// Angular rate threshold for [`DockingPhase::SoftDamped`], rad/s.
-    pub damping_rate_threshold_rad_s: f64,
-    /// Retraction speed along docking normal during [`DockingPhase::Retracting`], m/s.
-    pub retraction_speed_m_s: f64,
-    /// Linear soft-capture ring compliance stiffness, N/m.
-    pub linear_stiffness_n_m: f64,
-    /// Linear soft-capture viscous damping, N·s/m.
-    pub linear_damping_n_s_m: f64,
-    /// Rotational soft-capture ring compliance stiffness, N·m/rad.
-    pub angular_stiffness_nm_rad: f64,
-    /// Rotational soft-capture damping, N·m·s/rad.
-    pub angular_damping_nm_s_rad: f64,
-    /// Separation spring impulse when undocking, N·s.
-    pub undock_impulse_ns: f64,
-}
-
-/// Mutable state of a [`DockingCapture`](DockingSpec) port pair.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DockingState {
-    /// Current mechanism phase.
-    pub phase: DockingPhase,
-    /// Current target retraction axial stand-off distance, m.
-    pub standoff_m: f64,
-    /// Accumulated dwell time in `SoftDamped`, s.
-    pub dwell_s: f64,
-}
-
-impl Default for DockingState {
-    fn default() -> Self {
-        Self {
-            phase: DockingPhase::Open,
-            standoff_m: 0.0,
-            dwell_s: 0.0,
-        }
-    }
-}
-
-/// Equal-and-opposite world wrenches and hard-mate trigger produced by [`step_docking_capture`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DockingStepOutput {
-    /// Updated phase.
-    pub phase: DockingPhase,
-    /// Soft-capture spatial wrench acting ON chaser (`A`) in world axes about port A.
-    pub world_wrench_on_a: SpatialForce,
-    /// Soft-capture spatial wrench acting ON target (`B`) in world axes about port B.
-    pub world_wrench_on_b: SpatialForce,
-    /// True once retraction completes and [`hard_mate_vessels`] should lock the trees.
-    pub ready_for_hard_mate: bool,
-}
 
 /// Merged tree and exact momentum-conserving base state from [`hard_mate_vessels`].
 #[derive(Debug, Clone, PartialEq)]
@@ -112,82 +41,6 @@ pub struct GrappleLockSpec {
     pub capture_angle_rad: f64,
     /// Maximum relative speed for safe rigid grapple, m/s.
     pub max_relative_speed_m_s: f64,
-}
-
-/// Evaluates world port poses `(pos, rot, vel, omega)` of chaser port `A` and
-/// target port `B` through the soft-capture state machine, generating strictly
-/// balanced equal-and-opposite soft-capture ring wrenches in world coordinates.
-#[allow(clippy::too_many_arguments)]
-pub fn step_docking_capture(
-    spec: &DockingSpec,
-    state: &mut DockingState,
-    pos_a_world: DVec3,
-    rot_a_world: DQuat,
-    vel_a_world: DVec3,
-    omega_a_world: DVec3,
-    pos_b_world: DVec3,
-    rot_b_world: DQuat,
-    vel_b_world: DVec3,
-    omega_b_world: DVec3,
-    axis_a_local: DVec3,
-    dt_s: f64,
-) -> DockingStepOutput {
-    let delta_pos = pos_b_world - pos_a_world;
-    let delta_vel = vel_b_world - vel_a_world;
-    let dist = delta_pos.length();
-    let rel_rot = rot_a_world.conjugate() * rot_b_world;
-    let (_, align_angle) = rel_rot.to_axis_angle();
-    let rel_omega = omega_b_world - omega_a_world;
-    let axis_world = (rot_a_world * axis_a_local).normalize_or(DVec3::X);
-
-    match state.phase {
-        DockingPhase::Open => {
-            if dist <= spec.capture_radius_m
-                && align_angle <= spec.capture_angle_rad
-                && delta_vel.length() <= spec.max_closing_speed_m_s
-            {
-                state.phase = DockingPhase::SoftContact;
-                state.standoff_m = delta_pos.dot(axis_world).max(0.05);
-                state.dwell_s = 0.0;
-            }
-            zero_dock_out(state.phase)
-        }
-        DockingPhase::SoftContact | DockingPhase::SoftDamped | DockingPhase::Retracting => {
-            if state.phase == DockingPhase::SoftContact
-                && delta_vel.length() <= spec.damping_vel_threshold_m_s
-                && rel_omega.length() <= spec.damping_rate_threshold_rad_s
-            {
-                state.dwell_s += dt_s;
-                if state.dwell_s >= 0.05 {
-                    state.phase = DockingPhase::Retracting;
-                }
-            }
-            if state.phase == DockingPhase::Retracting {
-                state.standoff_m = (state.standoff_m - spec.retraction_speed_m_s * dt_s).max(0.0);
-            }
-            let target_pos_b = pos_a_world + axis_world * state.standoff_m;
-            let f_on_b = (target_pos_b - pos_b_world) * spec.linear_stiffness_n_m
-                + (vel_a_world - vel_b_world) * spec.linear_damping_n_s_m;
-            let ax = rot_a_world * rel_rot.to_scaled_axis();
-            let t_on_b = (-ax) * spec.angular_stiffness_nm_rad
-                + (omega_a_world - omega_b_world) * spec.angular_damping_nm_s_rad;
-            let w_b = SpatialForce::new(t_on_b, f_on_b);
-            // Action-reaction about A and B: F_A = -F_B, and tau_A = -tau_B - (B - A) x F_B.
-            let w_a = SpatialForce::new(-t_on_b - delta_pos.cross(f_on_b), -f_on_b);
-            let ready =
-                state.phase == DockingPhase::Retracting && state.standoff_m <= 1e-4 && dist <= 0.05;
-            if ready {
-                state.phase = DockingPhase::HardLatched;
-            }
-            DockingStepOutput {
-                phase: state.phase,
-                world_wrench_on_a: w_a,
-                world_wrench_on_b: w_b,
-                ready_for_hard_mate: ready,
-            }
-        }
-        DockingPhase::HardLatched | DockingPhase::Undocking => zero_dock_out(state.phase),
-    }
 }
 
 /// Rigidly mates `tree_b` onto `port_a` of `tree_a` (re-rooting `tree_b` to
@@ -360,13 +213,4 @@ pub fn grapple_lock(
         fixture_component,
         mate_placement,
     )
-}
-
-fn zero_dock_out(phase: DockingPhase) -> DockingStepOutput {
-    DockingStepOutput {
-        phase,
-        world_wrench_on_a: SpatialForce::ZERO,
-        world_wrench_on_b: SpatialForce::ZERO,
-        ready_for_hard_mate: false,
-    }
 }

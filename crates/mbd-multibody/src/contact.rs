@@ -1,10 +1,26 @@
-use glam::{DQuat, DVec3};
+//! Penalty contact of a body point against a surface: unilateral normal
+//! spring-damper and bristle stick-slip friction.
+//!
+//! The bristle is a spring `k_b` and damper `c_b` in parallel carrying the
+//! tangential force, `f = −(k_b z + c_b ż)`. While the Coulomb bound is not
+//! reached the bristle follows the surface (`ż = v_tan`); once it is, the
+//! force is held on the bound and the same relation gives the rate at which
+//! the bristle relaxes onto it. Which bound applies, static or kinetic, is a
+//! latch that changes only at step boundaries, so the force is a smooth
+//! function of the state within a step.
+
+use glam::DVec3;
 use mbd_core::{ComponentId, WrenchAtSite};
 
-use crate::MultibodyError;
+use crate::model::PointKinematics;
+
+mod element;
+mod rest;
 
 #[cfg(test)]
 mod tests;
+
+pub use rest::{PinnedRestInputs, PinnedRestSpec, PinnedSurfaceRest, step_pinned_surface_rest};
 
 /// Physical medium under a planetary surface query (`Solid` ground vs `Liquid` ocean).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -31,6 +47,21 @@ pub struct SurfaceSample {
     pub mu_dynamic_override: Option<f64>,
 }
 
+/// Host input answering "what surface lies under this point". It is queried
+/// at every integrator stage, so the surface follows the point as it moves
+/// within a step.
+pub trait SurfaceQuery {
+    /// Surface nearest to `point_world_m`.
+    fn surface_at(&self, point_world_m: DVec3) -> SurfaceSample;
+}
+
+/// A single plane is its own answer everywhere.
+impl SurfaceQuery for SurfaceSample {
+    fn surface_at(&self, _point_world_m: DVec3) -> SurfaceSample {
+        *self
+    }
+}
+
 /// Specification of one deformable solid contact skid, footpad, or crash point.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ContactPointSpec {
@@ -50,163 +81,232 @@ pub struct ContactPointSpec {
     pub bristle_stiffness_n_m: f64,
     /// Tangential bristle viscous damping, N·s/m.
     pub bristle_damping_n_s_m: f64,
+    /// Penetration over which normal damping ramps in from zero, m, so the
+    /// damper cannot pull on a point that is only grazing the surface. It
+    /// should be of the order of the static penetration;
+    /// [`ContactPointSpec::DEFAULT_DAMPING_RAMP_DEPTH_M`] suits a vehicle
+    /// that sinks centimetres into its contacts.
+    pub damping_ramp_depth_m: f64,
 }
 
-/// Runtime stick-slip state of a [`ContactPointSpec`].
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+/// A supported body, from which a contact's stiffness and damping follow.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SupportedLoad {
+    /// Mass resting on the contact point, kg.
+    pub mass_kg: f64,
+    /// Size of the body, m.
+    pub size_m: f64,
+    /// Gravitational acceleration pressing it down, m/s².
+    pub gravity_m_s2: f64,
+    /// Static penetration as a fraction of `size_m`.
+    pub penetration_fraction: f64,
+    /// Damping ratio of the normal spring against `mass_kg`.
+    pub damping_ratio: f64,
+}
+
+impl ContactPointSpec {
+    /// Damping ramp depth of a vehicle-scale contact, m.
+    pub const DEFAULT_DAMPING_RAMP_DEPTH_M: f64 = 0.01;
+
+    /// A contact sized from the body it supports: the stiffness gives the
+    /// stated static penetration under the body's weight, the damping the
+    /// stated ratio against its mass, the bristle shares both, and the
+    /// damping ramp spans half the static penetration, so a body at rest is
+    /// fully damped. Nothing in it is a dimensional constant, so the
+    /// response is the same at any scale.
+    pub fn sized_for(
+        component: ComponentId,
+        offset_local_m: DVec3,
+        load: &SupportedLoad,
+        mu_static: f64,
+        mu_dynamic: f64,
+    ) -> Self {
+        let depth = load.penetration_fraction * load.size_m;
+        let stiffness = load.mass_kg * load.gravity_m_s2 / depth;
+        let damping = 2.0 * load.damping_ratio * libm::sqrt(stiffness * load.mass_kg);
+        Self {
+            component,
+            offset_local_m,
+            stiffness_n_m: stiffness,
+            damping_n_s_m: damping,
+            mu_static,
+            mu_dynamic,
+            bristle_stiffness_n_m: stiffness,
+            bristle_damping_n_s_m: damping,
+            damping_ramp_depth_m: 0.5 * depth,
+        }
+    }
+}
+
+/// Stick-slip state of a [`ContactPointSpec`].
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ContactPointState {
-    /// Whether the point is currently loaded against solid terrain.
-    pub in_contact: bool,
-    /// Integrated tangential bristle deflection in world coordinates, m.
+    /// Friction latch: the static bound applies while set, the kinetic bound
+    /// while clear. Changed only by [`ContactPointSpec::transition`].
+    pub sticking: bool,
+    /// Tangential bristle deflection in world coordinates, m.
     pub tangent_deflection_world_m: DVec3,
 }
 
-/// Output of one contact step in both world and local host axes.
+impl Default for ContactPointState {
+    fn default() -> Self {
+        Self {
+            sticking: true,
+            tangent_deflection_world_m: DVec3::ZERO,
+        }
+    }
+}
+
+/// Loads and state rate of one contact point at one state.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ContactStepOutput {
-    /// Reaction wrench ready for multibody dynamics.
-    pub wrench: WrenchAtSite,
+pub struct ContactEvaluation {
+    /// Reaction force on the body point in world axes, N.
+    pub force_world_n: DVec3,
     /// Normal load magnitude, N (`0.0` when off ground).
     pub normal_force_n: f64,
     /// Penetration depth below ground surface, m (`0.0` if airborne).
     pub penetration_m: f64,
-    /// True if tangential reaction is held in static friction stick mode.
+    /// True while the tangential force is below the Coulomb bound in force.
     pub is_sticking: bool,
+    /// Rate of the bristle deflection in world axes, m/s.
+    pub deflection_rate_world_m_s: DVec3,
 }
 
-/// State machine latching a stationary landed spacecraft/lander cleanly on terrain
-/// (`Free` → `Settling` → `Pinned`) and releasing immediately on liftoff thrust.
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub enum PinnedSurfaceRest {
-    /// Unpinned free-body motion.
-    #[default]
-    Free,
-    /// Settled near rest, accumulating dwell time before pinning.
-    Settling {
-        /// Elapsed continuous settle duration, s.
-        elapsed_s: f64,
-    },
-    /// Mechanically rested/pinned at `world_pos_m` and `world_rot` against micro-jitter.
-    Pinned {
-        /// Locked world root position, m.
-        world_pos_m: DVec3,
-        /// Locked world root orientation.
-        world_rot: DQuat,
-    },
-}
-
-/// Evaluates unilateral Hunt-Crossley normal contact and LuGre/bristle stick-slip
-/// friction at one body point against `surface`.
-pub fn evaluate_contact_point(
-    spec: &ContactPointSpec,
-    state: &mut ContactPointState,
-    point_world_m: DVec3,
-    vel_world_m_s: DVec3,
-    surface: &SurfaceSample,
-    rot_world_from_link: DQuat,
-    dt_s: f64,
-) -> Result<ContactStepOutput, MultibodyError> {
-    if !dt_s.is_finite() || dt_s < 0.0 {
-        return Err(MultibodyError::InvalidParameter {
-            field: "dt_s",
-            value: dt_s,
-        });
-    }
-    let normal = surface.outward_normal_world.normalize_or(DVec3::Z);
-    let penetration = (surface.surface_point_world_m - point_world_m).dot(normal);
-    if surface.medium != SurfaceMedium::Solid || penetration <= 0.0 {
-        state.in_contact = false;
-        state.tangent_deflection_world_m = DVec3::ZERO;
-        return Ok(ContactStepOutput {
-            wrench: WrenchAtSite::zero(spec.component),
-            normal_force_n: 0.0,
-            penetration_m: 0.0,
-            is_sticking: false,
-        });
-    }
-
-    state.in_contact = true;
-    let v_n = vel_world_m_s.dot(normal);
-    let ramp = (penetration * 100.0).min(1.0);
-    let fn_mag = (spec.stiffness_n_m * penetration - spec.damping_n_s_m * v_n * ramp).max(0.0);
-
-    let v_tan = vel_world_m_s - normal * v_n;
-    let z = state.tangent_deflection_world_m + v_tan * dt_s;
-    let z_tan = z - normal * z.dot(normal);
-    let f_t_trial = -(z_tan * spec.bristle_stiffness_n_m + v_tan * spec.bristle_damping_n_s_m);
-
-    let mu_s = surface.mu_static_override.unwrap_or(spec.mu_static);
-    let mu_d = surface.mu_dynamic_override.unwrap_or(spec.mu_dynamic);
-    let f_t_mag = f_t_trial.length();
-    let max_static = mu_s * fn_mag;
-    let (f_t, sticking) = if f_t_mag <= max_static || f_t_mag == 0.0 {
-        state.tangent_deflection_world_m = z_tan;
-        (f_t_trial, true)
-    } else {
-        let max_kinetic = mu_d * fn_mag;
-        let dir = f_t_trial / f_t_mag;
-        if spec.bristle_stiffness_n_m > 0.0 {
-            state.tangent_deflection_world_m = -dir * (max_kinetic / spec.bristle_stiffness_n_m);
-        }
-        (dir * max_kinetic, false)
-    };
-
-    let f_world = normal * fn_mag + f_t;
-    Ok(ContactStepOutput {
-        wrench: WrenchAtSite {
+impl ContactEvaluation {
+    /// The reaction as a wrench at the contact point of `spec`.
+    pub fn wrench(&self, spec: &ContactPointSpec, point: &PointKinematics) -> WrenchAtSite {
+        WrenchAtSite {
             site: spec.component,
             point_local_m: spec.offset_local_m,
-            force_local_n: rot_world_from_link.conjugate() * f_world,
+            force_local_n: point.to_link(self.force_world_n),
             torque_local_nm: DVec3::ZERO,
-        },
-        normal_force_n: fn_mag,
-        penetration_m: penetration,
-        is_sticking: sticking,
-    })
+        }
+    }
 }
 
-/// Updates [`PinnedSurfaceRest`] latch for stationary lunar/planetary landers.
-#[allow(clippy::too_many_arguments)]
-pub fn step_pinned_surface_rest(
-    rest: &mut PinnedSurfaceRest,
-    any_contact: bool,
-    speed_m_s: f64,
-    ang_rate_rad_s: f64,
-    world_pos_m: DVec3,
-    world_rot: DQuat,
-    net_non_grav_upward_n: f64,
-    breakout_threshold_n: f64,
-    dwell_required_s: f64,
-    dt_s: f64,
-) {
-    match *rest {
-        PinnedSurfaceRest::Free => {
-            if any_contact
-                && speed_m_s < 0.03
-                && ang_rate_rad_s < 0.02
-                && net_non_grav_upward_n < breakout_threshold_n
-            {
-                *rest = PinnedSurfaceRest::Settling { elapsed_s: 0.0 };
-            }
+/// Normal and tangential quantities shared by evaluation and transition.
+struct Engagement {
+    normal: DVec3,
+    penetration: f64,
+    normal_force: f64,
+    v_tan: DVec3,
+    z_tan: DVec3,
+    /// Bristle force before the Coulomb bound.
+    f_trial: DVec3,
+    mu_static: f64,
+    mu_dynamic: f64,
+}
+
+impl ContactPointSpec {
+    fn engage(
+        &self,
+        state: &ContactPointState,
+        point: &PointKinematics,
+        surface: &SurfaceSample,
+    ) -> Option<Engagement> {
+        let normal = surface.outward_normal_world.normalize_or(DVec3::Z);
+        let penetration = (surface.surface_point_world_m - point.position_world_m).dot(normal);
+        if surface.medium != SurfaceMedium::Solid || penetration <= 0.0 {
+            return None;
         }
-        PinnedSurfaceRest::Settling { elapsed_s } => {
-            if !any_contact || speed_m_s > 0.08 || net_non_grav_upward_n >= breakout_threshold_n {
-                *rest = PinnedSurfaceRest::Free;
-            } else if elapsed_s + dt_s >= dwell_required_s {
-                *rest = PinnedSurfaceRest::Pinned {
-                    world_pos_m,
-                    world_rot,
-                };
+        let v_n = point.velocity_world_m_s.dot(normal);
+        let ramp = if self.damping_ramp_depth_m > 0.0 {
+            (penetration / self.damping_ramp_depth_m).min(1.0)
+        } else {
+            1.0
+        };
+        let normal_force =
+            (self.stiffness_n_m * penetration - self.damping_n_s_m * v_n * ramp).max(0.0);
+        let v_tan = point.velocity_world_m_s - normal * v_n;
+        let z = state.tangent_deflection_world_m;
+        let z_tan = z - normal * z.dot(normal);
+        Some(Engagement {
+            normal,
+            penetration,
+            normal_force,
+            v_tan,
+            z_tan,
+            f_trial: -(z_tan * self.bristle_stiffness_n_m + v_tan * self.bristle_damping_n_s_m),
+            mu_static: surface.mu_static_override.unwrap_or(self.mu_static),
+            mu_dynamic: surface.mu_dynamic_override.unwrap_or(self.mu_dynamic),
+        })
+    }
+
+    /// Reaction force and bristle rate at one state: a pure function of its
+    /// arguments, valid at any integrator stage.
+    pub fn evaluate(
+        &self,
+        state: &ContactPointState,
+        point: &PointKinematics,
+        surface: &SurfaceSample,
+    ) -> ContactEvaluation {
+        let Some(e) = self.engage(state, point, surface) else {
+            return ContactEvaluation {
+                force_world_n: DVec3::ZERO,
+                normal_force_n: 0.0,
+                penetration_m: 0.0,
+                is_sticking: false,
+                deflection_rate_world_m_s: DVec3::ZERO,
+            };
+        };
+        let mu = if state.sticking {
+            e.mu_static
+        } else {
+            e.mu_dynamic
+        };
+        let bound = mu * e.normal_force;
+        let trial = e.f_trial.length();
+        let (f_tan, rate, sticking) = if trial <= bound || trial == 0.0 {
+            (e.f_trial, e.v_tan, true)
+        } else {
+            let dir = e.f_trial / trial;
+            let f_tan = dir * bound;
+            let rate = if self.bristle_damping_n_s_m > 0.0 {
+                -(f_tan + e.z_tan * self.bristle_stiffness_n_m) / self.bristle_damping_n_s_m
             } else {
-                *rest = PinnedSurfaceRest::Settling {
-                    elapsed_s: elapsed_s + dt_s,
-                };
+                // An undamped bristle has no relaxation rate; it stops
+                // stretching against the bound and the transition clamps it.
+                e.v_tan + dir * (-e.v_tan.dot(dir)).max(0.0)
+            };
+            (f_tan, rate, false)
+        };
+        ContactEvaluation {
+            force_world_n: e.normal * e.normal_force + f_tan,
+            normal_force_n: e.normal_force,
+            penetration_m: e.penetration,
+            is_sticking: sticking,
+            deflection_rate_world_m_s: rate,
+        }
+    }
+
+    /// Applies the discrete events of a contact at an accepted step
+    /// boundary: lift-off clears the bristle, exceeding the static bound
+    /// releases the latch, and falling back under the kinetic bound sets it.
+    /// Returns whether anything changed.
+    pub fn transition(
+        &self,
+        state: &mut ContactPointState,
+        point: &PointKinematics,
+        surface: &SurfaceSample,
+    ) -> bool {
+        let before = *state;
+        match self.engage(state, point, surface) {
+            None => *state = ContactPointState::default(),
+            Some(e) => {
+                let trial = e.f_trial.length();
+                state.tangent_deflection_world_m = e.z_tan;
+                if state.sticking {
+                    state.sticking = trial <= e.mu_static * e.normal_force;
+                } else {
+                    let bound = e.mu_dynamic * e.normal_force;
+                    state.sticking = trial <= bound;
+                    let k = self.bristle_stiffness_n_m;
+                    if !state.sticking && self.bristle_damping_n_s_m <= 0.0 && k > 0.0 {
+                        state.tangent_deflection_world_m = e.z_tan.clamp_length_max(bound / k);
+                    }
+                }
             }
         }
-        PinnedSurfaceRest::Pinned { .. } => {
-            if net_non_grav_upward_n >= breakout_threshold_n {
-                *rest = PinnedSurfaceRest::Free;
-            }
-        }
+        *state != before
     }
 }

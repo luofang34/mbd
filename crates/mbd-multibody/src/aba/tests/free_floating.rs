@@ -7,7 +7,8 @@ use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{ComponentId, ComponentTree, JointSpec, JointState, Placement};
 
 use super::rigs::{OPEN_CONE_RAD, WIDE_RAD, diag, idle, joint_of, part, posed};
-use crate::{FloatingBaseState, JointDriveInput, step_rk4};
+use super::stepping::step_rk4;
+use crate::{FloatingBaseState, JointDriveInput};
 
 const BASE_KG: f64 = 6.0;
 const ARM_KG: f64 = 2.0;

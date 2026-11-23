@@ -51,4 +51,42 @@ pub enum MultibodyError {
         /// Component id.
         id: ComponentId,
     },
+    /// A component named by an element or a query is not part of the
+    /// attached chain the model was prepared from.
+    #[error("component {id} is detached from the model's chain")]
+    DetachedComponent {
+        /// Component id.
+        id: ComponentId,
+    },
+    /// A flat state, rate or generalized vector has the wrong length for
+    /// the model and element set it is used with.
+    #[error("state vector has {actual} components, expected {expected}")]
+    StateLengthMismatch {
+        /// Length the model and elements define.
+        expected: usize,
+        /// Length supplied.
+        actual: usize,
+    },
+    /// Error control cannot meet its tolerance with any representable step.
+    #[error("step size underflow at t = {time_s} s (step {step_s} s)")]
+    StepSizeUnderflow {
+        /// Time the integrator had reached, s.
+        time_s: f64,
+        /// Step it would have had to take, s.
+        step_s: f64,
+    },
+    /// An interval needed more internal steps than the integrator's limit.
+    #[error("interval needs more than {limit} internal steps (reached t = {time_s} s)")]
+    StepLimitExceeded {
+        /// Configured limit of internal steps per interval.
+        limit: u32,
+        /// Time the integrator had reached, s.
+        time_s: f64,
+    },
+    /// The iteration matrix `I − γ h J` of an implicit step is singular.
+    #[error("implicit iteration matrix is singular at t = {time_s} s")]
+    SingularIterationMatrix {
+        /// Time of the failed step, s.
+        time_s: f64,
+    },
 }

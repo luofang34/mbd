@@ -6,8 +6,9 @@ mod tether;
 mod tests;
 
 pub use docking::{
-    DockingPhase, DockingSpec, DockingState, DockingStepOutput, GrappleLockSpec, HardMateResult,
-    grapple_lock, hard_mate_vessels, step_docking_capture, undock_vessel,
+    DockingCapture, DockingEvaluation, DockingPhase, DockingSpec, DockingState, DockingTransition,
+    GrappleLockSpec, HardMateResult, PortAnchor, PortKinematics, grapple_lock, hard_mate_vessels,
+    undock_vessel,
 };
 pub use release::{
     HingeSwingSpec, HingeSwingState, ImpulseReleaseResult, RailDriveOutput, RailSlideSpec,
@@ -15,5 +16,6 @@ pub use release::{
     step_rail_drive,
 };
 pub use tether::{
-    TetherCutReason, TetherStepOutput, WinchTetherSpec, WinchTetherState, step_tether,
+    Tether, TetherAnchor, TetherCommand, TetherCutReason, TetherEnds, TetherEvaluation,
+    WinchTetherSpec, WinchTetherState,
 };

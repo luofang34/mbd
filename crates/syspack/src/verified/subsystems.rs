@@ -2,7 +2,7 @@ mod builders;
 
 use glam::DVec3;
 use mbd_aero::CompositeAeroModel;
-use mbd_multibody::{ManipulatorChain, MultibodyError, WheelSpec};
+use mbd_multibody::{ManipulatorChain, MultibodyError, TireModelSpec, WheelSpec};
 use mbd_systems::{
     BatterySpec, BatteryState, ElectricalBus, FluidNetwork, PowerGeneratorKind, PowerGeneratorSpec,
     PowerGeneratorState, SolarArraySpec, SolarArrayState, SystemsError, TankId, TankSpec,
@@ -287,6 +287,7 @@ impl VerifiedSyspack {
                 cornering_stiffness_n_rad: w.cornering_stiffness_n_rad,
                 rolling_resistance_coeff: 0.02,
                 longitudinal_stiffness_n: 5_000.0,
+                tire: TireModelSpec::DEFAULT,
             });
         }
         Ok(out)

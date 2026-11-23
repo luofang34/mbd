@@ -1,9 +1,6 @@
 //! Inward (tip-to-root) pass: articulated inertias, bias forces and the
 //! per-joint projections the outward pass reuses.
 
-use alloc::vec;
-use alloc::vec::Vec;
-
 use glam::{DMat3, DVec3};
 use mbd_core::JointKind;
 
@@ -22,8 +19,8 @@ pub(super) fn aba_pass2_inward(
     ia: &mut [SpatialMat6],
     pa: &mut [SpatialForce],
     c: &[SpatialMotion],
-) -> Result<Vec<JointSolve>, MultibodyError> {
-    let mut solves = vec![JointSolve::Rigid; links.len()];
+    solves: &mut [JointSolve],
+) -> Result<(), MultibodyError> {
     for (idx, link) in links.iter().enumerate().skip(1).rev() {
         let (Some(&ia_i), Some(&pa_i), Some(&c_i)) = (ia.get(idx), pa.get(idx), c.get(idx)) else {
             continue;
@@ -51,7 +48,7 @@ pub(super) fn aba_pass2_inward(
             *pp += p_shift;
         }
     }
-    Ok(solves)
+    Ok(())
 }
 
 fn singular(link: &LinkData) -> MultibodyError {

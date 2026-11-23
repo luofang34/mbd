@@ -7,7 +7,8 @@ use mbd_core::{
 };
 
 use super::*;
-use crate::aba::{FloatingBaseState, MultiBodyDynamics, StageForces, step_rk4_with_loads};
+use crate::aba::tests::stepping::{StageForces, step_rk4_with_loads};
+use crate::aba::{FloatingBaseState, MultiBodyDynamics};
 
 fn m_spec(
     name: &str,
@@ -321,24 +322,52 @@ fn soft_capture_ring_exerts_balanced_action_reaction_wrench() {
         angular_stiffness_nm_rad: 500.0,
         angular_damping_nm_s_rad: 100.0,
         undock_impulse_ns: 300.0,
+        min_capture_standoff_m: DockingSpec::DEFAULT_MIN_CAPTURE_STANDOFF_M,
+        damped_dwell_s: DockingSpec::DEFAULT_DAMPED_DWELL_S,
+        latch_standoff_tolerance_m: DockingSpec::DEFAULT_LATCH_STANDOFF_TOLERANCE_M,
+        latch_distance_m: DockingSpec::DEFAULT_LATCH_DISTANCE_M,
     };
     let mut dst = DockingState::default();
-    let soft = step_docking_capture(
-        &dock_spec,
-        &mut dst,
-        DVec3::ZERO,
-        DQuat::IDENTITY,
-        DVec3::ZERO,
-        DVec3::ZERO,
-        DVec3::X * 0.2,
-        DQuat::IDENTITY,
-        DVec3::X * -0.05,
-        DVec3::ZERO,
-        DVec3::X,
-        0.1,
-    );
-    assert_eq!(soft.phase, DockingPhase::SoftContact);
+    let port_a = PortKinematics {
+        position_world_m: DVec3::ZERO,
+        rotation_world: DQuat::IDENTITY,
+        velocity_world_m_s: DVec3::ZERO,
+        angular_vel_world_rad_s: DVec3::ZERO,
+    };
+    let port_b = PortKinematics {
+        position_world_m: DVec3::X * 0.2,
+        velocity_world_m_s: DVec3::X * -0.05,
+        ..port_a
+    };
+    let captured = dock_spec.transition(&mut dst, &port_a, &port_b, DVec3::X);
+    assert!(captured.changed && !captured.ready_for_hard_mate);
+    let soft = dock_spec.evaluate(&dst, &port_a, &port_b, DVec3::X);
+    assert_eq!(dst.phase, DockingPhase::SoftContact);
+    assert!(soft.world_wrench_on_b.force.length() > 0.0);
     assert!((soft.world_wrench_on_a.force + soft.world_wrench_on_b.force).length() < 1e-12);
+}
+
+/// One explicit-Euler step of a tether between prescribed anchors:
+/// evaluate, advance its continuous states, apply the boundary events.
+/// Returns whether the line was severed on this step.
+fn step_tether(
+    spec: &WinchTetherSpec,
+    state: &mut WinchTetherState,
+    cmd: &TetherCommand,
+    anchor_b_world_m: DVec3,
+    dt_s: f64,
+) -> bool {
+    let ends = TetherEnds {
+        anchor_a_world_m: DVec3::ZERO,
+        vel_a_world_m_s: DVec3::ZERO,
+        anchor_b_world_m,
+        vel_b_world_m_s: DVec3::ZERO,
+    };
+    let out = spec.evaluate(state, cmd, &ends);
+    state.deployed_length_m += out.deployed_length_rate_m_s * dt_s;
+    state.absorbed_thermal_j += out.absorbed_thermal_rate_w * dt_s;
+    state.low_tension_timer_s += out.low_tension_timer_rate * dt_s;
+    spec.transition(state, cmd, &ends).is_some()
 }
 
 #[test]
@@ -353,29 +382,14 @@ fn tether_models_vostok_burn_through_and_sky_crane_autocut() {
         auto_cut_dwell_s: 0.0,
     };
     let mut vst = WinchTetherState::intact_at(1.0);
-    let _ = step_tether(
-        &vostok_spec,
-        &mut vst,
-        DVec3::ZERO,
-        DVec3::ZERO,
-        DVec3::X * 1.1,
-        DVec3::ZERO,
-        600.0,
-        1.0,
-    )
-    .unwrap();
-    let out2 = step_tether(
-        &vostok_spec,
-        &mut vst,
-        DVec3::ZERO,
-        DVec3::ZERO,
-        DVec3::X * 1.1,
-        DVec3::ZERO,
-        600.0,
-        1.0,
-    )
-    .unwrap();
-    assert!(out2.severed_this_step);
+    let heating = TetherCommand {
+        heat_rate_w: 600.0,
+        ..TetherCommand::default()
+    };
+    let severed_first = step_tether(&vostok_spec, &mut vst, &heating, DVec3::X * 1.1, 1.0);
+    assert!(!severed_first);
+    let severed_second = step_tether(&vostok_spec, &mut vst, &heating, DVec3::X * 1.1, 1.0);
+    assert!(severed_second);
     assert_eq!(vst.cut_reason, Some(TetherCutReason::ThermalBurnThrough));
 
     let sky_crane = WinchTetherSpec {
@@ -387,35 +401,23 @@ fn tether_models_vostok_burn_through_and_sky_crane_autocut() {
         auto_cut_low_tension_n: Some(150.0),
         auto_cut_dwell_s: 0.2,
     };
-    let mut sst = WinchTetherState {
+    let mut sst = WinchTetherState::intact_at(2.0);
+    let paying_out = TetherCommand {
         payout_rate_m_s: 1.5,
-        ..WinchTetherState::intact_at(2.0)
+        ..TetherCommand::default()
     };
-    let _ = step_tether(
-        &sky_crane,
-        &mut sst,
-        DVec3::ZERO,
-        DVec3::ZERO,
-        DVec3::new(0.0, 0.0, 3.6),
-        DVec3::ZERO,
-        0.0,
-        1.0,
-    )
-    .unwrap();
+    let bridle = DVec3::new(0.0, 0.0, 3.6);
+    step_tether(&sky_crane, &mut sst, &paying_out, bridle, 1.0);
     assert!((sst.deployed_length_m - 3.5).abs() < 1e-12);
-    sst.payout_rate_m_s = 0.0;
+    let holding = TetherCommand::default();
     for _ in 0..3 {
-        let _ = step_tether(
+        step_tether(
             &sky_crane,
             &mut sst,
-            DVec3::ZERO,
-            DVec3::ZERO,
+            &holding,
             DVec3::new(0.0, 0.0, 3.3),
-            DVec3::ZERO,
-            0.0,
             0.1,
-        )
-        .unwrap();
+        );
     }
     assert!(!sst.intact);
     assert_eq!(sst.cut_reason, Some(TetherCutReason::TouchdownAutoCut));
