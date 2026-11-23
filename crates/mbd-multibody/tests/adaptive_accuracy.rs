@@ -12,7 +12,7 @@ use mbd_core::{
 };
 use mbd_multibody::{
     DormandPrince54, ElementContext, FloatingBaseState, ForceElement, ForceFn, Integrator, Loads,
-    ModelScale, ModelState, MultibodyError, MultibodyModel, Rk4, Tolerances, Workspace,
+    ModelScale, ModelState, MultibodyError, MultibodyModel, Rk4, TimeScale, Tolerances, Workspace,
 };
 
 fn part(
@@ -123,12 +123,10 @@ fn kepler() -> Problem<ForceFn<Field>> {
         posed(JointState::FIXED),
     )])
     .unwrap();
-    let mut model = MultibodyModel::new(&tree, &[]).unwrap();
-    let unit = ModelScale {
-        length_m: 1.0,
-        time_s: 1.0,
-    };
-    model.set_scale(unit).unwrap();
+    // Unit semi-major axis and gravitational parameter: the orbital period
+    // is 2π, its time unit 1.
+    let unit = ModelScale::new(1.0, 1.0, 1.0).unwrap();
+    let model = MultibodyModel::new(&tree, &[], unit).unwrap();
     let base = FloatingBaseState {
         position_world_m: DVec3::new(1.0 - e, 0.0, 0.0),
         linear_vel_root_m_s: DVec3::new(0.0, ((1.0 + e) / (1.0 - e)).sqrt(), 0.0),
@@ -218,12 +216,10 @@ fn double_pendulum() -> Problem<ForceFn<Field>> {
         bob(3, 0.7, 0.9),
     ])
     .unwrap();
-    let mut model = MultibodyModel::new(&tree, &[]).unwrap();
-    let scale = ModelScale {
-        length_m: 1.0,
-        time_s: (1.0_f64 / 9.81).sqrt(),
-    };
-    model.set_scale(scale).unwrap();
+    // Metre-scale arms and the bobs' mass; the held ground's 10¹² kg is a
+    // stand-in for a fixed base and would set no useful scale.
+    let scale = ModelScale::with_time(1.0, 1.5 + 0.9, TimeScale::Acceleration(9.81)).unwrap();
+    let model = MultibodyModel::new(&tree, &[], scale).unwrap();
     let elements = ForceFn(held_ground as Field);
     let start = model
         .state(&tree, &FloatingBaseState::AT_REST, &elements, &())

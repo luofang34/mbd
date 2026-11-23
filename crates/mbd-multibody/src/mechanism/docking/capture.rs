@@ -8,7 +8,7 @@ use mbd_core::{ComponentId, WrenchAtSite};
 use crate::MultibodyError;
 use crate::element::{ElementContext, ForceElement};
 use crate::model::layout::{read1, write1};
-use crate::model::{Kinematics, Loads};
+use crate::model::{Kinematics, Loads, ModelScale};
 use crate::spatial::SpatialForce;
 
 /// Phases of an orbital rendezvous & docking / capture mechanism (`DockingCapture`).
@@ -373,10 +373,10 @@ impl<I: ?Sized> ForceElement<I> for DockingCapture {
         DockingState::default().write_blocks(state, modes);
     }
 
-    fn state_scale(&self, scale: &mut [f64]) {
-        let positive = |v: f64| if v > 0.0 { v } else { 1.0 };
-        write1(scale, 0, positive(self.spec.capture_radius_m));
-        write1(scale, 1, positive(self.spec.damped_dwell_s));
+    fn state_scale(&self, model: &ModelScale, scale: &mut [f64]) {
+        let or = |v: f64, fallback: f64| if v > 0.0 { v } else { fallback };
+        write1(scale, 0, or(self.spec.capture_radius_m, model.length_m()));
+        write1(scale, 1, or(self.spec.damped_dwell_s, model.time_s()));
     }
 
     fn evaluate(

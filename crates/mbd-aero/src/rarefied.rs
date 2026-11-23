@@ -110,7 +110,10 @@ impl RarefiedPanelAero {
         let v_local =
             flow.velocity_air_link_m_s + flow.angular_rate_link_rad_s.cross(p.center_body_m);
         let speed = v_local.length();
-        if rho == 0.0 || r_mix <= 0.0 || t_inf <= 0.0 || speed <= 1e-9 {
+        // Only the flow direction below divides by the speed. The load goes
+        // to zero continuously with it: the speed-ratio floor bounds the
+        // thermal terms while the dynamic pressure vanishes.
+        if rho == 0.0 || r_mix <= 0.0 || t_inf <= 0.0 || speed == 0.0 {
             return Ok(AeroWrench {
                 reference_point_link_m: p.center_body_m,
                 ..AeroWrench::ZERO

@@ -2,8 +2,8 @@ use glam::DVec3;
 use mbd_aero::{
     AeroElementKind, BluntCapsuleAero, BluntCapsuleParams, BodyAndFinAero, BodyAndFinParams,
     FlappingWingAero, FlappingWingParams, HumanDummyAero, HumanDummyParams, ParachuteCanopyAero,
-    ParachuteParams, RarefiedPanelAero, RarefiedPanelParams, RotorBemAero, RotorBemParams,
-    WingSurfaceAero, WingSurfaceParams,
+    ParachuteParams, RarefiedPanelAero, RarefiedPanelParams, RotorBemAero, RotorBemNumerics,
+    RotorBemParams, WingSurfaceAero, WingSurfaceParams,
 };
 
 use super::AeroElementKindRecord;
@@ -208,6 +208,7 @@ impl AeroElementKindRecord {
                 collective_channel,
                 cyclic_lat_channel,
                 cyclic_lon_channel,
+                numerics: RotorBemNumerics::DEFAULT,
             })
             .map_err(SyspackError::InvalidAero)?,
         ))

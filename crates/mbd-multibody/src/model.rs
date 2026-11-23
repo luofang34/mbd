@@ -17,6 +17,7 @@ pub(crate) mod layout;
 mod loads;
 mod ode;
 mod operators;
+mod scale;
 mod state;
 mod workspace;
 
@@ -25,19 +26,9 @@ pub use layout::{StateKind, StateLayout};
 pub use loads::Loads;
 pub use ode::ModelOde;
 pub use operators::Resolution;
+pub use scale::{ModelScale, TimeScale};
 pub use state::ModelState;
 pub use workspace::Workspace;
-
-/// Characteristic length and time of a model. Absolute tolerances and
-/// finite-difference steps are multiples of these, which keeps integrator
-/// behaviour the same for a 1 mg insect and a 1 t aircraft.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ModelScale {
-    /// Characteristic length, m.
-    pub length_m: f64,
-    /// Characteristic time of the motion of interest, s.
-    pub time_s: f64,
-}
 
 /// The attached links of a [`ComponentTree`] in parent-before-child order
 /// with their constants, ready for evaluation at any state.
@@ -63,38 +54,51 @@ pub struct MultibodyModel {
 
 impl MultibodyModel {
     /// Prepares the attached chain of `tree` with `dynamic_masses` riding on
-    /// its components.
+    /// its components, at the characteristic `scale` of its motion (see
+    /// [`ModelScale`] for what the scale sets).
     pub fn new(
         tree: &ComponentTree,
         dynamic_masses: &[DynamicMassContribution],
+        scale: ModelScale,
     ) -> Result<Self, MultibodyError> {
-        let kinds = attached_joint_kinds(tree)?;
-        let (layout, slots) = StateLayout::new(kinds.iter().copied());
-        let (links, order_of) = prepare_links(tree, dynamic_masses, &slots)?;
-        let all_fixed = kinds
-            .iter()
-            .all(|k| matches!(k, mbd_core::JointKind::Fixed));
-        let length_m = links.iter().fold(0.0_f64, |acc, l| {
-            let gyration = if l.mass_kg > 0.0 {
-                let i = l.inertia_cg_local;
-                libm::sqrt((i.x_axis.x + i.y_axis.y + i.z_axis.z).max(0.0) / l.mass_kg)
-            } else {
-                0.0
-            };
-            acc.max(l.placement.translation_m.length())
-                .max(l.cg_local_m.length())
-                .max(gyration)
-        });
+        let (links, order_of, layout, all_fixed) = prepare(tree, dynamic_masses)?;
         Ok(Self {
             links,
             order_of,
             layout,
             all_fixed,
-            scale: ModelScale {
-                length_m: if length_m > 0.0 { length_m } else { 1.0 },
-                time_s: 1.0,
-            },
+            scale,
         })
+    }
+
+    /// As [`MultibodyModel::new`], with the length and mass of the scale
+    /// taken from the prepared links (the largest link offset,
+    /// centre-of-mass offset or radius of gyration, and the total mass) and
+    /// the time from `time`. Fails with [`MultibodyError::InvalidScale`]
+    /// when the tree has no extent or no mass.
+    pub fn with_derived_scale(
+        tree: &ComponentTree,
+        dynamic_masses: &[DynamicMassContribution],
+        time: TimeScale,
+    ) -> Result<Self, MultibodyError> {
+        let (links, order_of, layout, all_fixed) = prepare(tree, dynamic_masses)?;
+        let scale = ModelScale::of_links(&links, time)?;
+        Ok(Self {
+            links,
+            order_of,
+            layout,
+            all_fixed,
+            scale,
+        })
+    }
+
+    /// A model whose scale is never read: one evaluated once, or advanced
+    /// only by a fixed-step integrator, which weighs no error.
+    pub(crate) fn unscaled(
+        tree: &ComponentTree,
+        dynamic_masses: &[DynamicMassContribution],
+    ) -> Result<Self, MultibodyError> {
+        Self::new(tree, dynamic_masses, ModelScale::UNREAD)
     }
 
     /// Recomputes every link's mass properties from the tree's current
@@ -118,22 +122,11 @@ impl MultibodyModel {
         &self.layout
     }
 
-    /// Characteristic length and time. The length defaults to the largest
-    /// link offset or radius of gyration in the tree; the time defaults to
-    /// one second and should be set to the period of the motion of interest.
+    /// Characteristic length, mass and time, fixed at construction:
+    /// [`MultibodyModel::refresh_mass`] leaves it as it is, so a vehicle
+    /// burning propellant keeps the tolerances it started with.
     pub const fn scale(&self) -> ModelScale {
         self.scale
-    }
-
-    /// Replaces the characteristic length and time.
-    pub fn set_scale(&mut self, scale: ModelScale) -> Result<(), MultibodyError> {
-        for (field, value) in [("length_m", scale.length_m), ("time_s", scale.time_s)] {
-            if !value.is_finite() || value <= 0.0 {
-                return Err(MultibodyError::InvalidParameter { field, value });
-            }
-        }
-        self.scale = scale;
-        Ok(())
     }
 
     /// Components of the attached chain, parent before child.
@@ -220,6 +213,22 @@ impl MultibodyModel {
         }
         Ok(())
     }
+}
+
+/// Links, index, state layout and whether every joint is fixed.
+type Prepared = (Vec<PreparedLink>, Vec<Option<usize>>, StateLayout, bool);
+
+fn prepare(
+    tree: &ComponentTree,
+    dynamic_masses: &[DynamicMassContribution],
+) -> Result<Prepared, MultibodyError> {
+    let kinds = attached_joint_kinds(tree)?;
+    let (layout, slots) = StateLayout::new(kinds.iter().copied());
+    let (links, order_of) = prepare_links(tree, dynamic_masses, &slots)?;
+    let all_fixed = kinds
+        .iter()
+        .all(|k| matches!(k, mbd_core::JointKind::Fixed));
+    Ok((links, order_of, layout, all_fixed))
 }
 
 /// `fresh` for the fields `kind` integrates, `kept` for the others.

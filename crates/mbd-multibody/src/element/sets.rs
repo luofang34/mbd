@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 
 use super::{ElementContext, ForceElement};
 use crate::MultibodyError;
-use crate::model::{Loads, Resolution};
+use crate::model::{Loads, ModelScale, Resolution};
 
 fn short(expected: usize, actual: usize) -> MultibodyError {
     MultibodyError::StateLengthMismatch { expected, actual }
@@ -64,9 +64,9 @@ impl<I: ?Sized, T: ForceElement<I>> ForceElement<I> for [T] {
         }
     }
 
-    fn state_scale(&self, mut scale: &mut [f64]) {
+    fn state_scale(&self, model: &ModelScale, mut scale: &mut [f64]) {
         for e in self {
-            e.state_scale(take_lenient(&mut scale, e.state_len()));
+            e.state_scale(model, take_lenient(&mut scale, e.state_len()));
         }
     }
 
@@ -142,8 +142,8 @@ macro_rules! forward_element {
             $target.initial_state(state, modes);
         }
 
-        fn state_scale(&$self, scale: &mut [f64]) {
-            $target.state_scale(scale);
+        fn state_scale(&$self, model: &ModelScale, scale: &mut [f64]) {
+            $target.state_scale(model, scale);
         }
 
         fn evaluate(
@@ -240,8 +240,8 @@ macro_rules! tuple_element {
                 )+
             }
 
-            fn state_scale(&self, mut scale: &mut [f64]) {
-                $(self.$idx.state_scale(take_lenient(&mut scale, self.$idx.state_len()));)+
+            fn state_scale(&self, model: &ModelScale, mut scale: &mut [f64]) {
+                $(self.$idx.state_scale(model, take_lenient(&mut scale, self.$idx.state_len()));)+
             }
 
             fn evaluate(

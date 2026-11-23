@@ -8,6 +8,8 @@ use mbd_core::{
 
 use super::*;
 use crate::aba::{FloatingBaseState, MultiBodyDynamics};
+use crate::{MultibodyModel, TimeScale};
+const EARTH: TimeScale = TimeScale::Acceleration(9.81);
 
 fn m_spec(
     name: &str,
@@ -149,7 +151,7 @@ fn rail_slide_release_ejects_seat_and_conserves_momentum() {
         spec: rail,
         fire: true,
     };
-    let model = crate::MultibodyModel::new(&rtree, &[]).unwrap();
+    let model = MultibodyModel::with_derived_scale(&rtree, &[], EARTH).unwrap();
     let start = FloatingBaseState::AT_REST;
     let init_r = MultiBodyDynamics::system_momentum(&rtree, &[], &start).unwrap();
     let mut state = model.state(&rtree, &start, &slide, &()).unwrap();
@@ -454,7 +456,7 @@ fn hinged_panel_opens_only_when_unlatched_and_latches_at_its_release_angle() {
         spring_torque_nm: 400.0,
         damper_nm_s_rad: 20.0,
     };
-    let model = crate::MultibodyModel::new(&tree, &[]).unwrap();
+    let model = MultibodyModel::with_derived_scale(&tree, &[], EARTH).unwrap();
     let base = FloatingBaseState::AT_REST;
     let mut work = crate::Workspace::new();
     let run = |unlatch: bool, work: &mut crate::Workspace| {

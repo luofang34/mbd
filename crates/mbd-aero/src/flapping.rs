@@ -45,6 +45,24 @@
 //! up to Re of order 10⁴ (Lentink & Dickinson 2009, J. Exp. Biol.
 //! 212:2705), which bounds where the model is meant to be used.
 //! [`FlappingWingLoads::mean_reynolds`] reports the operating point.
+//!
+//! The coefficients are stroke means normalised by the speed at each
+//! radius (Sane & Dickinson 2001, J. Exp. Biol. 204:2607, eq. 3: the
+//! blade-element integral over the wing's second moment of area), so they
+//! apply element by element with the element's own speed, as here.
+//!
+//! Known over-prediction for idealised kinematics: with a horizontal stroke
+//! plane, no stroke deviation and about 45° incidence through mid-stroke,
+//! the model gives a mean lift coefficient near 1.7, while freely hovering
+//! *Drosophila* need 1.36 ± 0.21 (Fry, Sayaman & Dickinson 2005, J. Exp.
+//! Biol. 208:2303, Table 1), so such a wing carries more than the weight.
+//! The likely source is the idealisation, not the coefficients: a robotic
+//! wing flapping in a horizontal plane without deviation at 45–50°
+//! incidence measures 1.39–1.90 (Sane & Dickinson 2001, Figs 3 and 6), and
+//! ±25° of stroke deviation, as real flies have, lowers it by 14–32 %
+//! (ibid., Fig. 8). [`FlappingWingLoads`] reports lift, drag and
+//! rotational force separately so a host can see which term carries the
+//! load.
 
 use alloc::vec::Vec;
 use core::f64::consts::PI;
@@ -97,8 +115,15 @@ struct Strip {
 pub struct FlappingWingLoads {
     /// Translational and rotational forces about the link origin.
     pub wrench: AeroWrench,
-    /// Translational force alone, link axes, N.
+    /// Translational force alone, link axes, N: the sum of
+    /// `translational_lift_link_n` and `translational_drag_link_n`.
     pub translational_force_link_n: DVec3,
+    /// Lift part of the translational force, perpendicular to each
+    /// element's motion through the air, link axes, N.
+    pub translational_lift_link_n: DVec3,
+    /// Drag part of the translational force, against each element's motion
+    /// through the air, link axes, N.
+    pub translational_drag_link_n: DVec3,
     /// Rotational force alone, link axes, N.
     pub rotational_force_link_n: DVec3,
     /// Added inertia of the entrained air about the link origin, link axes.
@@ -209,11 +234,13 @@ impl FlappingWingAero {
         Ok(FlappingWingLoads {
             wrench: AeroWrench {
                 reference_point_link_m: DVec3::ZERO,
-                force_link_n: (acc.translational + acc.rotational) * rho,
+                force_link_n: (acc.lift + acc.drag + acc.rotational) * rho,
                 moment_ref_link_nm: acc.moment * rho,
                 stagnation_heat_flux_w_m2: 0.0,
             },
-            translational_force_link_n: acc.translational * rho,
+            translational_force_link_n: (acc.lift + acc.drag) * rho,
+            translational_lift_link_n: acc.lift * rho,
+            translational_drag_link_n: acc.drag * rho,
             rotational_force_link_n: acc.rotational * rho,
             added_inertia: self.added_inertia_per_density * rho,
             aerodynamic_power_w: acc.power * rho,
@@ -248,7 +275,9 @@ impl FlappingWingAero {
         let alpha_deg = libm::atan2(u_n.abs(), u.dot(chord).abs()).to_degrees();
         let (cl, cd) = translational_coefficients(alpha_deg);
         let q_area = 0.5 * speed * speed * s.chord * s.width;
-        let f_trans = (lift_direction(dir, span, n, u_n) * cl - dir * cd) * q_area;
+        let f_lift = lift_direction(dir, span, n, u_n) * (cl * q_area);
+        let f_drag = -dir * (cd * q_area);
+        let f_trans = f_lift + f_drag;
         // Kutta condition at the three-quarter chord: the circulation is
         // π c times the plate's own normal velocity there from rotation,
         // and the force opposes that motion.
@@ -256,7 +285,8 @@ impl FlappingWingAero {
         let rotation_normal_speed = w.cross(to_three_quarter).dot(n);
         let f_rot = -n * (PI * speed * s.chord * rotation_normal_speed * s.width);
         let v_cp = flow.velocity_air_link_m_s + w.cross(cp);
-        acc.translational += f_trans;
+        acc.lift += f_lift;
+        acc.drag += f_drag;
         acc.rotational += f_rot;
         acc.moment += cp.cross(f_trans + f_rot);
         acc.power -= (f_trans + f_rot).dot(v_cp);
@@ -266,7 +296,8 @@ impl FlappingWingAero {
 /// Per-unit-density sums over the blade elements.
 #[derive(Debug, Default)]
 struct Accum {
-    translational: DVec3,
+    lift: DVec3,
+    drag: DVec3,
     rotational: DVec3,
     moment: DVec3,
     power: f64,

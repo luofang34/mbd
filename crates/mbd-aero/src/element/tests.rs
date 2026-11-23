@@ -129,6 +129,7 @@ fn rotor() -> AeroElementKind {
             collective_channel: Some(7),
             cyclic_lat_channel: Some(8),
             cyclic_lon_channel: Some(9),
+            numerics: crate::RotorBemNumerics::DEFAULT,
         })
         .unwrap(),
     )

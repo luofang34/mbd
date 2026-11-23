@@ -50,7 +50,7 @@ impl MultiBodyDynamics {
         joint_loads: &[JointLoadInput],
         external_wrenches: &[WrenchAtSite],
     ) -> Result<MultiBodyAccel, MultibodyError> {
-        let model = MultibodyModel::new(tree, dynamic_masses)?;
+        let model = MultibodyModel::unscaled(tree, dynamic_masses)?;
         let elements = (
             UniformGravity(gravity_world_m_s2),
             joint_drives,
@@ -83,7 +83,7 @@ impl MultiBodyDynamics {
         dynamic_masses: &[DynamicMassContribution],
         base_state: &FloatingBaseState,
     ) -> Result<SystemMomentum, MultibodyError> {
-        let model = MultibodyModel::new(tree, dynamic_masses)?;
+        let model = MultibodyModel::unscaled(tree, dynamic_masses)?;
         let state = model.state(tree, base_state, &(), &())?;
         model.system_momentum(&state, &mut Workspace::new())
     }
@@ -94,7 +94,7 @@ impl MultiBodyDynamics {
         tree: &ComponentTree,
         dynamic_masses: &[DynamicMassContribution],
     ) -> Result<SpatialMat6, MultibodyError> {
-        let model = MultibodyModel::new(tree, dynamic_masses)?;
+        let model = MultibodyModel::unscaled(tree, dynamic_masses)?;
         let state = model.state(tree, &FloatingBaseState::AT_REST, &(), &())?;
         model.locked_root_spatial_inertia(&state, &mut Workspace::new())
     }

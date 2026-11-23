@@ -93,7 +93,8 @@ pub trait Integrator {
 
 /// Relative and absolute error tolerance of one state group. The absolute
 /// part is a fraction of the group's characteristic magnitude, so it is
-/// dimensionless and holds at any scale.
+/// dimensionless and holds at any scale; [`crate::ModelScale`] sets out how
+/// those magnitudes are formed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Tolerance {
     /// Admissible error relative to the component's current magnitude.

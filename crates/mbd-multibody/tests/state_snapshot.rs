@@ -12,8 +12,8 @@ use mbd_core::{
 use mbd_multibody::{
     ContactPointSpec, DormandPrince54, FloatingBaseState, Integrator, ModelScale, ModelState,
     MultibodyError, MultibodyModel, Rk4, Rosenbrock23, SupportedLoad, SurfaceMedium, SurfaceSample,
-    Tether, TetherAnchor, TetherCommand, TireModelSpec, Tolerances, UniformGravity, Wheel,
-    WheelCommand, WheelSpec, WinchTetherSpec, Workspace,
+    Tether, TetherAnchor, TetherCommand, TimeScale, TireModelSpec, Tolerances, UniformGravity,
+    Wheel, WheelCommand, WheelSpec, WinchTetherSpec, Workspace,
 };
 
 const MASS_KG: f64 = 2.0;
@@ -152,12 +152,8 @@ fn elements() -> Elements {
 
 fn setup() -> (MultibodyModel, ModelState, Elements) {
     let tree = tree();
-    let mut model = MultibodyModel::new(&tree, &[]).unwrap();
-    let scale = ModelScale {
-        length_m: SIZE_M,
-        time_s: (SIZE_M / G).sqrt(),
-    };
-    model.set_scale(scale).unwrap();
+    let scale = ModelScale::with_time(SIZE_M, MASS_KG, TimeScale::Acceleration(G)).unwrap();
+    let model = MultibodyModel::new(&tree, &[], scale).unwrap();
     let elements = elements();
     let base = FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, 0.85 * SIZE_M),

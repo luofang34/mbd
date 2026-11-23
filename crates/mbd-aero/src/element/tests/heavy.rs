@@ -8,7 +8,7 @@ use glam::{DMat3, DQuat};
 use mbd_core::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, JointState, Placement,
 };
-use mbd_multibody::{FloatingBaseState, ModelState, MultibodyModel, Rk4, Workspace};
+use mbd_multibody::{FloatingBaseState, ModelState, MultibodyModel, Rk4, TimeScale, Workspace};
 
 use super::*;
 use crate::{AeroEnvironment, AirSample};
@@ -146,7 +146,8 @@ fn env() -> AeroEnvironment<'static> {
 }
 
 fn prepared(tree: &ComponentTree) -> (MultibodyModel, ModelState) {
-    let model = MultibodyModel::new(tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let state = model.state(tree, &base(), &elements(), &env()).unwrap();
     (model, state)
 }
@@ -208,7 +209,8 @@ fn accelerations<E: ForceElement<AeroEnvironment<'static>>>(
     tree: &ComponentTree,
     elements: &E,
 ) -> Vec<f64> {
-    let model = MultibodyModel::new(tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let state = model.state(tree, &base(), elements, &env()).unwrap();
     let mut work = Workspace::new();
     let mut rates = vec![0.0; state.as_slice().len()];
@@ -285,7 +287,8 @@ fn a_commanded_canopy_latches_and_inflates_with_the_vehicle() {
         AeroElementKind::ParachuteCanopy(ParachuteCanopyAero::new(stowed).unwrap()),
     )];
     let tree = hinged_tree(0.0, 0.0, JointSpec::FIXED);
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let mut controls = CONTROLS.to_vec();
     controls.push(1.0);
     let fire = AeroEnvironment {

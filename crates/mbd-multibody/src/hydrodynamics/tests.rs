@@ -2,7 +2,7 @@ use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 
 use super::*;
-use crate::{FloatingBaseState, MultibodyModel, Workspace};
+use crate::{FloatingBaseState, MultibodyModel, TimeScale, Workspace};
 
 #[test]
 fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
@@ -52,7 +52,8 @@ fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
         ComponentState::at_temperature(293.15),
     )])
     .unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let totals = |base: FloatingBaseState| {
         let state = model.state(&tree, &base, &hydro, &water).unwrap();
         let mut work = Workspace::new();

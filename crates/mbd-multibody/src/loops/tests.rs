@@ -2,7 +2,7 @@ use glam::{DMat3, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 
 use super::*;
-use crate::{FloatingBaseState, MultibodyModel, Workspace};
+use crate::{FloatingBaseState, MultibodyModel, TimeScale, Workspace};
 
 fn link_spec(
     name: &str,
@@ -77,7 +77,8 @@ fn rocker_bogie_differential_and_weld_loops_conserve_internal_equilibrium() {
             damping_n_s_m: 10.0,
         },
     ];
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let base = FloatingBaseState::AT_REST;
     let state = model.state(&tree, &base, &constraints, &()).unwrap();
     let mut work = Workspace::new();

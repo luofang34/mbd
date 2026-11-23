@@ -9,7 +9,7 @@ use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, JointState, Placement,
 };
-use mbd_multibody::{FloatingBaseState, ModelState, MultibodyModel, Rk4, Workspace};
+use mbd_multibody::{FloatingBaseState, ModelState, MultibodyModel, Rk4, TimeScale, Workspace};
 
 const L1: f64 = 1.1;
 const L2: f64 = 0.7;
@@ -77,7 +77,8 @@ fn double_pendulum(q1: f64, q2: f64) -> (MultibodyModel, ModelState) {
         bob(3, L2, M2),
     ])
     .unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let state = model
         .state(&tree, &FloatingBaseState::AT_REST, &(), &())
         .unwrap();
@@ -218,7 +219,8 @@ fn floating_arm() -> (MultibodyModel, ModelState) {
         ),
     ])
     .unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let base = FloatingBaseState {
         position_world_m: DVec3::new(3.0, -1.0, 2.0),
         rotation_world_from_root: DQuat::from_rotation_x(0.3),

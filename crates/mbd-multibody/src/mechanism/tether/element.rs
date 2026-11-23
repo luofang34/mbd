@@ -8,7 +8,7 @@ use super::{TetherCommand, TetherCutReason, TetherEnds, WinchTetherSpec, WinchTe
 use crate::MultibodyError;
 use crate::element::{ElementContext, ForceElement};
 use crate::model::layout::{read1, write1};
-use crate::model::{Kinematics, Loads};
+use crate::model::{Kinematics, Loads, ModelScale};
 
 /// Where one end of a tether is attached.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -141,15 +141,12 @@ impl<I: ?Sized> ForceElement<I> for Tether {
         WinchTetherState::intact_at(self.initial_length_m).write_blocks(state, modes);
     }
 
-    fn state_scale(&self, scale: &mut [f64]) {
-        let positive = |v: f64| if v > 0.0 { v } else { 1.0 };
-        write1(scale, 0, positive(self.spec.max_length_m));
-        write1(
-            scale,
-            1,
-            positive(self.spec.burn_through_energy_j.unwrap_or(1.0)),
-        );
-        write1(scale, 2, positive(self.spec.auto_cut_dwell_s));
+    fn state_scale(&self, model: &ModelScale, scale: &mut [f64]) {
+        let or = |v: f64, fallback: f64| if v > 0.0 { v } else { fallback };
+        write1(scale, 0, or(self.spec.max_length_m, model.length_m()));
+        let energy = self.spec.burn_through_energy_j.unwrap_or(0.0);
+        write1(scale, 1, or(energy, model.energy_j()));
+        write1(scale, 2, or(self.spec.auto_cut_dwell_s, model.time_s()));
     }
 
     fn evaluate(

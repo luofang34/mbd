@@ -35,5 +35,5 @@ pub use flapping::{
 pub use flow::{AeroEnvironment, AeroInputs, AeroWrench, AirSample, LinkFlow};
 pub use parachute::{ParachuteCanopyAero, ParachuteParams, ParachuteState};
 pub use rarefied::{RarefiedPanelAero, RarefiedPanelParams};
-pub use rotor::{RotorBemAero, RotorBemParams, RotorState, RotorWrench};
+pub use rotor::{RotorBemAero, RotorBemNumerics, RotorBemParams, RotorState, RotorWrench};
 pub use wing::{WingSurfaceAero, WingSurfaceParams};

@@ -27,16 +27,12 @@ pub fn elements(fly: &Fly, air: bool, contacts: Vec<ContactPointSpec>) -> FlyEle
     (UniformGravity(g), servo, wings, contacts)
 }
 
-/// The model at the fly's own scale: wing length and wingbeat period.
+/// The model at the fly's own scale: wing length, fly mass and wingbeat
+/// period.
 pub fn model(fly: &Fly) -> MultibodyModel {
-    let mut model = MultibodyModel::new(&fly.tree, &fly.dynamic_masses).unwrap();
-    model
-        .set_scale(ModelScale {
-            length_m: fly.spec.wing_length_m,
-            time_s: fly.spec.period_s(),
-        })
-        .unwrap();
-    model
+    let spec = &fly.spec;
+    let scale = ModelScale::new(spec.wing_length_m, spec.total_mass_kg(), spec.period_s()).unwrap();
+    MultibodyModel::new(&fly.tree, &fly.dynamic_masses, scale).unwrap()
 }
 
 /// State with the body at `base` and the wings on their prescribed angles
@@ -73,6 +69,12 @@ pub struct WingSample {
     pub force: DVec3,
     /// Translational force alone, N.
     pub translational: DVec3,
+    /// Lift part of the translational force, N.
+    pub lift: DVec3,
+    /// Drag part of the translational force, N.
+    pub drag: DVec3,
+    /// Rotational circulation force, N.
+    pub rotational: DVec3,
     /// Moment of the circulatory forces about the world origin, N·m.
     pub moment_origin: DVec3,
     /// Power taken by the circulatory forces, W.
@@ -100,6 +102,9 @@ pub fn wings(fly: &Fly, kin: &Kinematics<'_>, world: &FlyWorld) -> WingSample {
         let f = r * loads.wrench.force_link_n;
         out.force += f;
         out.translational += r * loads.translational_force_link_n;
+        out.lift += r * loads.translational_lift_link_n;
+        out.drag += r * loads.translational_drag_link_n;
+        out.rotational += r * loads.rotational_force_link_n;
         out.moment_origin += r * loads.wrench.moment_ref_link_nm + o.position_world_m.cross(f);
         out.power_w += loads.aerodynamic_power_w;
         out.reynolds += 0.5 * loads.mean_reynolds;

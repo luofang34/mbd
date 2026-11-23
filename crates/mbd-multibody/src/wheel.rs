@@ -9,7 +9,7 @@ use crate::MultibodyError;
 use crate::contact::{SurfaceMedium, SurfaceQuery, SurfaceSample};
 use crate::element::{ElementContext, ForceElement};
 use crate::model::layout::{read1, write1};
-use crate::model::{Loads, PointKinematics};
+use crate::model::{Loads, ModelScale, PointKinematics};
 
 #[cfg(test)]
 mod tests;
@@ -219,13 +219,13 @@ impl<I: SurfaceQuery + ?Sized> ForceElement<I> for Wheel {
         1
     }
 
-    fn state_scale(&self, scale: &mut [f64]) {
+    fn state_scale(&self, model: &ModelScale, scale: &mut [f64]) {
         let radius = self.spec.wheel_radius_m;
         let floor = self.spec.tire.slip_speed_floor_m_s;
         scale.fill(if radius > 0.0 && floor > 0.0 {
             floor / radius
         } else {
-            1.0
+            model.angular_rate_rad_s()
         });
     }
 

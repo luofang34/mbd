@@ -1,6 +1,14 @@
 //! Free flight: the fly released from rest with its wings on the
 //! prescribed motion, integrated for 50 wingbeats at 100 steps per beat.
 //!
+//! The body's pitch is held by the pitch feedback of
+//! [`super::fly::WingServo::stabilised`], whose gains are this test's
+//! design. That controller is not part of the aerodynamic model: hovering
+//! insect flight is unstable in pitch without active control, a diverging
+//! oscillation that fruit flies correct with reflexes several times faster
+//! than its growth (Ristroph et al. 2013, J. R. Soc. Interface
+//! 10:20130237).
+//!
 //! The bookkeeping closes over the bodies and the entrained air together:
 //! the air's impulse changes only by the circulatory forces, so
 //! `d(P_bodies + P_air)/dt = F_circ + M g`, and likewise for angular

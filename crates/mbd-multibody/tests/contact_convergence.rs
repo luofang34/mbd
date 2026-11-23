@@ -10,7 +10,7 @@ use glam::{DMat3, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 use mbd_multibody::{
     ContactPointSpec, ContactPointState, FloatingBaseState, MultibodyModel, Rk4, SupportedLoad,
-    SurfaceMedium, SurfaceSample, UniformGravity, Workspace,
+    SurfaceMedium, SurfaceSample, TimeScale, UniformGravity, Workspace,
 };
 
 const MASS_KG: f64 = 1.0e-6;
@@ -43,7 +43,7 @@ fn settle(steps: u32, t_end: f64) -> (Vec<f64>, bool) {
         joint: JointSpec::FIXED,
     };
     let tree = ComponentTree::new([(spec, ComponentState::at_temperature(293.15))]).unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model = MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(G)).unwrap();
     let ground = SurfaceSample {
         surface_point_world_m: DVec3::ZERO,
         outward_normal_world: DVec3::Z,

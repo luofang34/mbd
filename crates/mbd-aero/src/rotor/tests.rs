@@ -25,6 +25,7 @@ fn ingenuity_rotor(direction: f64, hub: DVec3) -> RotorBemAero {
         collective_channel: Some(1),
         cyclic_lat_channel: None,
         cyclic_lon_channel: None,
+        numerics: RotorBemNumerics::DEFAULT,
     })
     .unwrap()
 }
@@ -88,6 +89,7 @@ fn earth_aircraft_propeller_generates_forward_thrust_and_p_factor_damping() {
         collective_channel: None,
         cyclic_lat_channel: None,
         cyclic_lon_channel: None,
+        numerics: RotorBemNumerics::DEFAULT,
     })
     .unwrap();
     let sea_level = AmbientGas::earth_air(101_325.0, 288.15).unwrap();

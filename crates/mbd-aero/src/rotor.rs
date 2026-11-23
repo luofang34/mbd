@@ -9,8 +9,12 @@ use crate::validation::{
     check_finite, check_finite_vec, check_nonnegative, check_positive, check_unit_vec, invalid,
 };
 
+mod inflow;
 #[cfg(test)]
 mod tests;
+
+pub use inflow::RotorBemNumerics;
+use inflow::solve_induced_inflow;
 
 /// Configuration for a unified Blade-Element-Momentum (BEM) rotor or propeller
 /// element, covering fixed-pitch/constant-speed propellers (C172, P-38G),
@@ -73,6 +77,9 @@ pub struct RotorBemParams {
     pub cyclic_lat_channel: Option<usize>,
     /// Control channel carrying longitudinal cyclic pitch, rad.
     pub cyclic_lon_channel: Option<usize>,
+    /// Bracket of the inflow solve and the reverse-flow floor;
+    /// [`RotorBemNumerics::DEFAULT`] unless a case needs otherwise.
+    pub numerics: RotorBemNumerics,
 }
 
 /// Spin and pitch commands of a [`RotorBemAero`] disk.
@@ -229,7 +236,7 @@ impl RotorBemAero {
         let p = &self.params;
         let omega_r = state.omega_rad_s * r;
         let theta_mean = twist_rad + state.collective_rad;
-        let vi_bound = omega_r * 0.6 + v_axial.abs() + 25.0;
+        let vi_bound = omega_r * 0.6 + v_axial.abs() + p.numerics.inflow_bracket_pad_m_s;
         let v_i = solve_induced_inflow(
             p, ambient, omega_r, theta_mean, v_axial, v_edge, r, dr, vi_bound,
         );
@@ -244,7 +251,8 @@ impl RotorBemAero {
         for &psi in &az_samples {
             let (sin_p, cos_p) = libm::sincos(psi);
             let dir = p.rotation_direction;
-            let u_t = (omega_r + dir * (-v_e1 * sin_p + v_e2 * cos_p)).max(0.01);
+            let u_t = (omega_r + dir * (-v_e1 * sin_p + v_e2 * cos_p))
+                .max(p.numerics.min_tangential_speed_m_s);
             let u_p = v_axial + p.coaxial_interference_factor * v_i;
             let theta = theta_mean + state.cyclic_lon_rad * cos_p + state.cyclic_lat_rad * sin_p;
             let (dt, dq, df_drag, re) = element_loads(p, ambient, u_t, u_p, theta, r, dr);
@@ -295,48 +303,6 @@ struct BemAccum {
     moment_e1: f64,
     moment_e2: f64,
     re_sum: f64,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn solve_induced_inflow(
-    p: &RotorBemParams,
-    ambient: &AmbientGas,
-    omega_r: f64,
-    theta: f64,
-    v_axial: f64,
-    v_edge: f64,
-    r: f64,
-    dr: f64,
-    bound: f64,
-) -> f64 {
-    let mut lo = -bound.min(v_axial.max(0.0) * 0.5 + 10.0);
-    let mut hi = bound;
-    let res = |vi: f64| {
-        let u_p = v_axial + p.coaxial_interference_factor * vi;
-        let (dt_bet, _, _, _) = element_loads(p, ambient, omega_r, u_p, theta, r, dr);
-        let phi = libm::atan2(u_p.abs().max(1e-3), omega_r.max(1e-3));
-        let prandtl_arg =
-            (0.5 * f64::from(p.blade_count) * (p.radius_m - r)) / (r * libm::sin(phi).max(0.02));
-        let f_tip = (2.0 / PI) * libm::acos(libm::exp(-prandtl_arg.min(50.0)).min(1.0));
-        let v_disk = libm::sqrt(v_edge * v_edge + u_p * u_p);
-        let dt_mom = 4.0 * PI * r * ambient.density_kg_m3 * f_tip.max(0.1) * vi * v_disk * dr;
-        dt_bet - dt_mom
-    };
-    if res(lo) <= 0.0 {
-        return lo;
-    }
-    if res(hi) >= 0.0 {
-        return hi;
-    }
-    for _ in 0..22 {
-        let mid = 0.5 * (lo + hi);
-        if res(mid) > 0.0 {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    0.5 * (lo + hi)
 }
 
 fn element_loads(
@@ -426,7 +392,7 @@ fn validate_rotor_params(p: &RotorBemParams) -> Result<(), MbdError> {
     if !(4..=32).contains(&p.radial_stations) {
         return Err(invalid("radial_stations", f64::from(p.radial_stations)));
     }
-    Ok(())
+    p.numerics.validate()
 }
 
 fn validate_rotor_state(s: &RotorState) -> Result<(), MbdError> {

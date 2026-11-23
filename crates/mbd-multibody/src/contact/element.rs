@@ -4,8 +4,8 @@
 use super::{ContactPointSpec, ContactPointState, SurfaceQuery};
 use crate::MultibodyError;
 use crate::element::{ElementContext, ForceElement};
-use crate::model::Loads;
 use crate::model::layout::{read1, read3, write1, write3};
+use crate::model::{Loads, ModelScale};
 
 impl ContactPointState {
     /// Reads the state from an element's continuous block and mode block.
@@ -40,10 +40,10 @@ impl<I: SurfaceQuery + ?Sized> ForceElement<I> for ContactPointSpec {
         ContactPointState::default().write_blocks(state, modes);
     }
 
-    fn state_scale(&self, scale: &mut [f64]) {
+    fn state_scale(&self, model: &ModelScale, scale: &mut [f64]) {
         // The bristle deflects by about the normal penetration.
         let depth = self.damping_ramp_depth_m;
-        scale.fill(if depth > 0.0 { depth } else { 1.0 });
+        scale.fill(if depth > 0.0 { depth } else { model.length_m() });
     }
 
     fn evaluate(

@@ -59,7 +59,7 @@ pub use mechanism::{
 };
 pub use model::{
     Kinematics, Loads, ModelOde, ModelScale, ModelState, MultibodyModel, PointKinematics,
-    Resolution, StateKind, StateLayout, Workspace,
+    Resolution, StateKind, StateLayout, TimeScale, Workspace,
 };
 pub use spatial::{SpatialForce, SpatialMat6, SpatialMotion, SpatialTransform};
 pub use wheel::{TireModelSpec, Wheel, WheelCommand, WheelEvaluation, WheelSpec, WheelState};

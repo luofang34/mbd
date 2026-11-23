@@ -15,6 +15,16 @@ pub enum MultibodyError {
         /// Non-finite or out-of-range value.
         value: f64,
     },
+    /// A characteristic length, mass, time or acceleration of a model scale
+    /// is not finite and positive, given or derived (a tree with no extent
+    /// or no mass has no scale to derive).
+    #[error("model scale {field} must be finite and positive, got {value}")]
+    InvalidScale {
+        /// Offending part of the scale.
+        field: &'static str,
+        /// Value given or derived.
+        value: f64,
+    },
     /// Articulated or rigid base mass matrix cannot be inverted safely.
     #[error("multibody base spatial inertia matrix is singular")]
     SingularMassMatrix,

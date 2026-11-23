@@ -8,7 +8,7 @@ use mbd_core::WrenchAtSite;
 
 use crate::MultibodyError;
 use crate::aba::{JointDriveInput, JointLoadInput};
-use crate::model::{Kinematics, Loads, MultibodyModel, Resolution};
+use crate::model::{Kinematics, Loads, ModelScale, MultibodyModel, Resolution};
 
 mod sets;
 
@@ -90,8 +90,12 @@ pub trait ForceElement<I: ?Sized> {
     }
 
     /// Writes the characteristic magnitude of each continuous state, in its
-    /// own unit. Tolerances and finite-difference steps scale with it.
-    fn state_scale(&self, scale: &mut [f64]) {
+    /// own unit. Tolerances and finite-difference steps scale with it. An
+    /// element without a magnitude of its own takes one from `model`
+    /// ([`ModelScale`] describes how); the default suits dimensionless
+    /// states.
+    fn state_scale(&self, model: &ModelScale, scale: &mut [f64]) {
+        let _unused = model;
         scale.fill(1.0);
     }
 

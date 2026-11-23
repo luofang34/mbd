@@ -10,7 +10,7 @@ use mbd_core::{
 };
 use mbd_multibody::{
     ElementContext, FloatingBaseState, ForceFn, Loads, MultibodyError, MultibodyModel, SpatialMat6,
-    UniformGravity, Workspace,
+    TimeScale, UniformGravity, Workspace,
 };
 
 const MASS_KG: f64 = 2.0;
@@ -37,7 +37,7 @@ fn linear_accel<E: mbd_multibody::ForceElement<()>>(elements: &E) -> DVec3 {
         joint: JointSpec::FIXED,
     };
     let tree = ComponentTree::new([(spec, ComponentState::at_temperature(293.15))]).unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model = MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(G)).unwrap();
     let state = model
         .state(&tree, &FloatingBaseState::AT_REST, elements, &())
         .unwrap();

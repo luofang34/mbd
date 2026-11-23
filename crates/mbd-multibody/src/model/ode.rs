@@ -52,14 +52,14 @@ impl<I: ?Sized, E: ForceElement<I> + ?Sized> OdeSystem for ModelOde<'_, I, E> {
         }
         for (slot, kind) in magnitudes.iter_mut().zip(self.model.layout.kinds()) {
             *slot = match kind {
-                StateKind::Length => scale.length_m,
-                StateKind::LinearRate => scale.length_m / scale.time_s,
-                StateKind::AngularRate => 1.0 / scale.time_s,
+                StateKind::Length => scale.length_m(),
+                StateKind::LinearRate => scale.speed_m_s(),
+                StateKind::AngularRate => scale.angular_rate_rad_s(),
                 StateKind::Attitude | StateKind::Angle | StateKind::Auxiliary => 1.0,
             };
         }
         if let Some(aux) = magnitudes.get_mut(n..) {
-            self.elements.state_scale(aux);
+            self.elements.state_scale(&scale, aux);
         }
     }
 

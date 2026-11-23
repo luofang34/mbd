@@ -85,7 +85,7 @@ where
     E: From<MultibodyError> + Into<MultibodyError>,
     F: FnMut(&ComponentTree, &FloatingBaseState, f64) -> Result<StageForces, E>,
 {
-    let model = MultibodyModel::new(tree, dynamic_masses)?;
+    let model = MultibodyModel::unscaled(tree, dynamic_masses)?;
     let view = tree.clone();
     let callback = std::cell::RefCell::new(eval_forces);
     let element = ForceFn(

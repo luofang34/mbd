@@ -10,7 +10,7 @@ use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointS
 use mbd_multibody::{
     ContactPointSpec, FloatingBaseState, ForceElement, Integrator, ModelScale, ModelState,
     MultibodyModel, Rk4, Rosenbrock23, SupportedLoad, SurfaceMedium, SurfaceSample, Tether,
-    TetherAnchor, TetherCommand, Tolerances, UniformGravity, WinchTetherSpec, Workspace,
+    TetherAnchor, TetherCommand, TimeScale, Tolerances, UniformGravity, WinchTetherSpec, Workspace,
 };
 
 /// Body: 1 mg, 1 mm.
@@ -34,12 +34,8 @@ fn mote() -> (MultibodyModel, ComponentTree) {
         joint: JointSpec::FIXED,
     };
     let tree = ComponentTree::new([(spec, ComponentState::at_temperature(293.15))]).unwrap();
-    let mut model = MultibodyModel::new(&tree, &[]).unwrap();
-    let scale = ModelScale {
-        length_m: SIZE_M,
-        time_s: (SIZE_M / G).sqrt(),
-    };
-    model.set_scale(scale).unwrap();
+    let scale = ModelScale::with_time(SIZE_M, MASS_KG, TimeScale::Acceleration(G)).unwrap();
+    let model = MultibodyModel::new(&tree, &[], scale).unwrap();
     (model, tree)
 }
 

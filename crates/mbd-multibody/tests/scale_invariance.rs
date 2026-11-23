@@ -11,7 +11,7 @@ use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 use mbd_multibody::{
     ContactPointSpec, ContactPointState, FloatingBaseState, MultibodyModel, Rk4, SupportedLoad,
-    SurfaceMedium, SurfaceSample, Tether, TetherAnchor, TetherCommand, UniformGravity,
+    SurfaceMedium, SurfaceSample, Tether, TetherAnchor, TetherCommand, TimeScale, UniformGravity,
     WinchTetherSpec, WinchTetherState, Workspace,
 };
 
@@ -98,7 +98,9 @@ fn nondimensional_run(s: Scale, steps: usize) -> Outcome {
         joint: JointSpec::FIXED,
     };
     let tree = ComponentTree::new([(spec, ComponentState::at_temperature(293.15))]).unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(s.gravity()))
+            .unwrap();
     let ground = SurfaceSample {
         surface_point_world_m: DVec3::ZERO,
         outward_normal_world: DVec3::Z,

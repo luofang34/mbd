@@ -190,13 +190,14 @@ impl ParachuteCanopyAero {
         let normal_restoring = -q * area_eff * p.cn_alpha * u_lat;
         let total_force = drag_force + normal_restoring;
 
-        let diameter = libm::sqrt(4.0 * area_eff.max(1e-6) / core::f64::consts::PI);
+        // Square of the diameter of a disk of the effective area; an
+        // uninflated canopy has none and damps nothing.
+        let diameter_sq = 4.0 * area_eff / core::f64::consts::PI;
         let damp = -0.25
             * flow.ambient.density_kg_m3
             * speed
             * area_eff
-            * diameter
-            * diameter
+            * diameter_sq
             * p.rotational_damping_coeff
             * flow.angular_rate_link_rad_s;
 

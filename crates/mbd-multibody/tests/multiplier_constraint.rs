@@ -9,7 +9,7 @@ use glam::{DMat3, DVec3};
 use mbd_core::{ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement};
 use mbd_multibody::{
     ElementContext, FloatingBaseState, ForceElement, Loads, ModelState, MultibodyError,
-    MultibodyModel, Resolution, Rk4, UniformGravity, Workspace,
+    MultibodyModel, Resolution, Rk4, TimeScale, UniformGravity, Workspace,
 };
 
 const MASS_KG: f64 = 3.0;
@@ -82,7 +82,7 @@ fn pendulum() -> (MultibodyModel, ModelState, Elements) {
         joint: JointSpec::FIXED,
     };
     let tree = ComponentTree::new([(spec, ComponentState::at_temperature(293.15))]).unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model = MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(G)).unwrap();
     let pin = Pin {
         component: ComponentId(0),
         offset_local_m: PIN,

@@ -11,7 +11,7 @@ use mbd_core::{
 use mbd_multibody::{
     DockingCapture, DockingPhase, DockingSpec, DockingState, FloatingBaseState, ForceElement,
     HullStation, HydrodynamicsModel, JointLoadInput, LoopConstraint, MultiBodyDynamics,
-    MultibodyModel, PortAnchor, PortKinematics, Rk4, WaterState, Workspace,
+    MultibodyModel, PortAnchor, PortKinematics, Rk4, TimeScale, WaterState, Workspace,
 };
 
 fn part(parent: Option<u32>, at: DVec3, mass_kg: f64, joint: JointSpec) -> ComponentSpec {
@@ -71,7 +71,8 @@ fn accelerations<I, E: ForceElement<I>>(
     elements: &E,
     inputs: &I,
 ) -> Vec<f64> {
-    let model = MultibodyModel::new(tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let state = model.state(tree, base, elements, inputs).unwrap();
     let mut work = Workspace::new();
     let mut rates = vec![0.0; state.as_slice().len()];
@@ -221,7 +222,8 @@ fn hull_as_an_element_matches_its_base_state_evaluation() {
     let reference = accelerations(&tree, &base, &recorded, &());
     let as_element = accelerations(&tree, &base, &hull, &water);
     assert_close(&as_element, &reference, 1e-12);
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let state = model.state(&tree, &base, &hull, &water).unwrap();
     let mut work = Workspace::new();
     let totals = hull
@@ -234,7 +236,12 @@ fn hull_as_an_element_matches_its_base_state_evaluation() {
 #[test]
 fn refreshed_mass_matches_a_fresh_preparation() {
     let (mut tree, base) = rover();
-    let mut model = MultibodyModel::new(&tree, &[]).unwrap();
+    // The scale is fixed at construction and survives the refresh, so both
+    // sides are given the same one.
+    let scale = MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81))
+        .unwrap()
+        .scale();
+    let mut model = MultibodyModel::new(&tree, &[], scale).unwrap();
     // Propellant loaded into a rocker and a distributed mass on the chassis.
     let mut rocker = *tree.state(ComponentId(1)).unwrap();
     rocker.fluid_mass_kg = 7.5;
@@ -246,7 +253,7 @@ fn refreshed_mass_matches_a_fresh_preparation() {
         inertia_cg_local: DMat3::from_diagonal(DVec3::new(2.0, 3.0, 4.0)),
     }];
     model.refresh_mass(&tree, &riding).unwrap();
-    assert_eq!(model, MultibodyModel::new(&tree, &riding).unwrap());
+    assert_eq!(model, MultibodyModel::new(&tree, &riding, scale).unwrap());
     let fresh = MultiBodyDynamics::system_momentum(&tree, &riding, &base).unwrap();
     let state = model.state(&tree, &base, &(), &()).unwrap();
     let refreshed = model
@@ -283,7 +290,8 @@ fn docking_ring_as_an_element_captures_and_pulls_the_ports_together() {
         posed(JointState::FIXED),
     )])
     .unwrap();
-    let model = MultibodyModel::new(&tree, &[]).unwrap();
+    let model =
+        MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(9.81)).unwrap();
     let spec = ring_spec();
     // Target port held 0.3 m ahead of the chaser's port along the axis.
     let ring = DockingCapture {
