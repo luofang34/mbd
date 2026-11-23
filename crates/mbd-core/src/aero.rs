@@ -1,26 +1,9 @@
 use glam::DVec3;
 
-use crate::MbdError;
-
-mod capsule;
-
-pub use capsule::{BluntBodyCapsuleAero, BluntBodyCapsuleParams, SUTTON_GRAVES_K_EARTH};
+use crate::{AmbientGas, MbdError};
 
 #[cfg(test)]
 mod tests;
-
-/// Undisturbed air around the vehicle.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct AmbientFlow {
-    /// Static pressure, Pa.
-    pub pressure_pa: f64,
-    /// Static temperature, K.
-    pub temperature_k: f64,
-    /// Density, kg/m³.
-    pub density_kg_m3: f64,
-    /// Speed of sound, m/s.
-    pub sound_speed_m_s: f64,
-}
 
 /// The flow a pluggable aerodynamics model evaluates.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -29,15 +12,15 @@ pub struct AeroFlowState {
     pub velocity_air_body_m_s: DVec3,
     /// Angular rate relative to the air, body axes, rad/s.
     pub angular_rate_body_rad_s: DVec3,
-    /// Undisturbed air.
-    pub ambient: AmbientFlow,
+    /// Undisturbed multi-species ambient gas.
+    pub ambient: AmbientGas,
     /// Control-surface deflections, rad; models define which slot is which.
     pub control_surfaces_rad: [f64; 8],
 }
 
 impl AeroFlowState {
-    /// Rejects a flow a model cannot evaluate: anything non-finite, or
-    /// negative density, which would flip the sign of every force.
+    /// Rejects a flow a model cannot evaluate: non-finite velocities,
+    /// non-finite control surfaces, or invalid ambient gas properties.
     pub fn validate(&self) -> Result<(), MbdError> {
         let invalid = |field, value| Err(MbdError::InvalidFlow { field, value });
         if !self.velocity_air_body_m_s.is_finite() {
@@ -49,9 +32,11 @@ impl AeroFlowState {
                 self.angular_rate_body_rad_s.length(),
             );
         }
-        let density = self.ambient.density_kg_m3;
-        if !density.is_finite() || density < 0.0 {
-            return invalid("ambient.density_kg_m3", density);
+        self.ambient.validate()?;
+        for &deflection in &self.control_surfaces_rad {
+            if !deflection.is_finite() {
+                return invalid("control_surfaces_rad", deflection);
+            }
         }
         Ok(())
     }
@@ -98,7 +83,8 @@ pub trait AeroModel {
 pub struct VacuumAero;
 
 impl AeroModel for VacuumAero {
-    fn evaluate(&self, _flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+    fn evaluate(&self, flow: &AeroFlowState) -> Result<AeroWrench, MbdError> {
+        flow.validate()?;
         Ok(AeroWrench::ZERO)
     }
 }

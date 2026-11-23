@@ -1,0 +1,23 @@
+[package]
+name = "mbd-design"
+description = "Forward and reverse Model-Based Design tools: multistage Delta-v budgets, CG fuel-trim envelopes, orbital power/thermal balance, bounded Levenberg-Marquardt system identification, and syspack contract auditing"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+glam = { workspace = true }
+mbd-core = { workspace = true }
+mbd-provenance = { workspace = true }
+mbd-systems = { workspace = true }
+serde = { workspace = true }
+syspack = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

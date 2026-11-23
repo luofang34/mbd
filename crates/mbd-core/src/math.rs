@@ -1,10 +1,5 @@
 use glam::DVec2;
 
-/// `√x`.
-pub(crate) fn sqrt(x: f64) -> f64 {
-    DVec2::splat(x).sqrt().x
-}
-
 /// `(sin x, cos x)`.
 pub(crate) fn sin_cos(x: f64) -> (f64, f64) {
     let unit = DVec2::from_angle(x);

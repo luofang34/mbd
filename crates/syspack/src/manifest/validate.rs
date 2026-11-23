@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use super::{
-    DeviceKindSpec, DynamicsSpec, InstrumentPackRef, MountedDeviceSpec, SCHEMA_VERSION,
-    SyspackManifest, SystemKind,
+    DeviceKindSpec, DynamicsSpec, InstrumentPackRef, MIN_SCHEMA_VERSION, MountedDeviceSpec,
+    SCHEMA_VERSION, SyspackManifest, SystemKind,
 };
 use crate::SyspackError;
 use crate::instrument_pack::INSTRUMENTS_ASSET;
@@ -57,7 +57,7 @@ pub(crate) fn require(field: &'static str, value: &str) -> Result<(), SyspackErr
 impl SyspackManifest {
     /// Checks everything that can be judged from the manifest alone.
     pub(super) fn validate(&self) -> Result<(), SyspackError> {
-        if self.schema_version != SCHEMA_VERSION {
+        if !(MIN_SCHEMA_VERSION..=SCHEMA_VERSION).contains(&self.schema_version) {
             return Err(SyspackError::UnsupportedSchema {
                 found: self.schema_version,
                 expected: SCHEMA_VERSION,
@@ -78,6 +78,9 @@ impl SyspackManifest {
             return Ok(());
         }
         let keys = self.validate_components()?;
+        self.validate_dynamics_components(&keys)?;
+        self.subsystems
+            .validate_refs(&keys, &|path| self.check_declared(path))?;
         self.validate_devices(&keys)
     }
 
@@ -95,28 +98,56 @@ impl SyspackManifest {
     }
 
     fn validate_dynamics(&self) -> Result<(), SyspackError> {
-        let DynamicsSpec::JsbsimXml {
-            aircraft_dir,
-            model_name,
-            entry_asset,
-            virtual_path,
-            additional_assets,
-        } = &self.dynamics
-        else {
+        match &self.dynamics {
+            DynamicsSpec::JsbsimXml {
+                aircraft_dir,
+                model_name,
+                entry_asset,
+                virtual_path,
+                additional_assets,
+            } => {
+                let expected = format!("{aircraft_dir}/{model_name}/{model_name}.xml");
+                if *virtual_path != expected {
+                    return Err(SyspackError::JsbsimEntryPath {
+                        expected,
+                        actual: virtual_path.clone(),
+                    });
+                }
+                check_asset_path(virtual_path)?;
+                self.check_declared(entry_asset)?;
+                for (asset, destination) in additional_assets {
+                    self.check_declared(asset)?;
+                    check_asset_path(destination)?;
+                }
+                Ok(())
+            }
+            DynamicsSpec::ExternalAdapter {
+                adapter_kind,
+                entry_asset,
+                additional_assets,
+            } => {
+                require("external adapter kind", adapter_kind)?;
+                self.check_declared(entry_asset)?;
+                for (asset, destination) in additional_assets {
+                    self.check_declared(asset)?;
+                    check_asset_path(destination)?;
+                }
+                Ok(())
+            }
+            _ => Ok(()),
+        }
+    }
+
+    fn validate_dynamics_components(&self, keys: &BTreeSet<&str>) -> Result<(), SyspackError> {
+        let DynamicsSpec::MultibodyComposed { aero_elements } = &self.dynamics else {
             return Ok(());
         };
-        let expected = format!("{aircraft_dir}/{model_name}/{model_name}.xml");
-        if *virtual_path != expected {
-            return Err(SyspackError::JsbsimEntryPath {
-                expected,
-                actual: virtual_path.clone(),
-            });
-        }
-        check_asset_path(virtual_path)?;
-        self.check_declared(entry_asset)?;
-        for (asset, destination) in additional_assets {
-            self.check_declared(asset)?;
-            check_asset_path(destination)?;
+        for elem in aero_elements {
+            if !keys.contains(elem.site.as_str()) {
+                return Err(SyspackError::UnknownComponent {
+                    key: elem.site.clone(),
+                });
+            }
         }
         Ok(())
     }
@@ -134,6 +165,9 @@ impl SyspackManifest {
             }
             if !self.assets.contains_key(INSTRUMENTS_ASSET) {
                 return shape("an instrument pack must declare instruments.json");
+            }
+            if !self.subsystems.is_empty() {
+                return shape("an instrument pack has no subsystems");
             }
         }
         if let Some(pin) = &self.instrument_pack {
@@ -158,8 +192,8 @@ impl SyspackManifest {
         if self.dynamics != DynamicsSpec::None || self.instrument_pack.is_some() {
             return shape("a typeface pack has no dynamics and pins nothing");
         }
-        if !self.components.is_empty() || !self.devices.is_empty() {
-            return shape("a typeface pack has no components or devices");
+        if !self.components.is_empty() || !self.devices.is_empty() || !self.subsystems.is_empty() {
+            return shape("a typeface pack has no components, devices, or subsystems");
         }
         typeface.validate(|path| self.assets.contains_key(path))?;
         Ok(true)

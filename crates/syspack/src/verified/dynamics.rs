@@ -1,5 +1,6 @@
 use glam::DVec3;
-use mbd_core::{AeroModel, BluntBodyCapsuleAero, BluntBodyCapsuleParams, VacuumAero};
+use mbd_aero::BluntCapsuleAero;
+use mbd_core::{AeroModel, VacuumAero};
 
 use super::VerifiedSyspack;
 use crate::{DynamicsSpec, SyspackError};
@@ -17,14 +18,15 @@ impl VerifiedSyspack {
         }
     }
 
-    /// The aerodynamics of a rigid-body package. A JSBSim package has none
-    /// of its own, since JSBSim evaluates them inside the aircraft, and a
-    /// stationary system has none at all.
+    /// The aerodynamics of a rigid-body or composed multibody package.
     pub fn build_aero_model(&self) -> Result<Box<dyn AeroModel>, SyspackError> {
         match &self.manifest.dynamics {
             DynamicsSpec::RigidBodyVacuum => Ok(Box::new(VacuumAero)),
             DynamicsSpec::RigidBodyBluntCapsule { .. } => Ok(Box::new(self.capsule_aero()?)),
-            DynamicsSpec::None | DynamicsSpec::JsbsimXml { .. } => {
+            DynamicsSpec::MultibodyComposed { .. } => Ok(Box::new(self.build_composite_aero()?)),
+            DynamicsSpec::None
+            | DynamicsSpec::JsbsimXml { .. }
+            | DynamicsSpec::ExternalAdapter { .. } => {
                 Err(self.mismatch("build_aero_model", RIGID_BODY))
             }
         }
@@ -32,7 +34,7 @@ impl VerifiedSyspack {
 
     /// The capsule aerodynamics of a blunt-capsule package, as their concrete
     /// type for callers that read the parameters back.
-    pub fn capsule_aero(&self) -> Result<BluntBodyCapsuleAero, SyspackError> {
+    pub fn capsule_aero(&self) -> Result<BluntCapsuleAero, SyspackError> {
         let DynamicsSpec::RigidBodyBluntCapsule {
             base_radius_m,
             nose_radius_m,
@@ -45,15 +47,15 @@ impl VerifiedSyspack {
         else {
             return Err(self.mismatch("capsule_aero", CAPSULE));
         };
-        BluntBodyCapsuleAero::new(BluntBodyCapsuleParams {
+        BluntCapsuleAero::hypersonic_newtonian(
             base_radius_m,
             nose_radius_m,
-            reference_point_body_m: DVec3::from_array(reference_point_body_m),
+            DVec3::from_array(reference_point_body_m),
             normal_force_slope,
             axial_drag_coeff,
             pitch_damping_coeff,
             sutton_graves_k,
-        })
+        )
         .map_err(SyspackError::InvalidAero)
     }
 

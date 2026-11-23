@@ -120,4 +120,51 @@ pub enum MbdError {
         /// The variant the operation reads.
         expected: &'static str,
     },
+    /// A gas composition or ambient gas input is non-finite, negative, or exceeds species capacity.
+    #[error("gas parameter {field} is invalid: {value}")]
+    InvalidGas {
+        /// Offending field.
+        field: &'static str,
+        /// Offending value.
+        value: f64,
+    },
+    /// A joint specification or joint runtime state is not physical.
+    #[error("joint on component {name:?}: {field}: {detail}")]
+    InvalidJoint {
+        /// Component name.
+        name: String,
+        /// Offending field.
+        field: &'static str,
+        /// What was wrong.
+        detail: String,
+    },
+    /// A dynamic mass/inertia contribution is non-finite or unphysical.
+    #[error("dynamic mass contribution on component {component} has invalid {field}")]
+    InvalidMassContribution {
+        /// Target component.
+        component: ComponentId,
+        /// Offending field.
+        field: &'static str,
+    },
+    /// Splitting at the root component would leave no parent body.
+    #[error("cannot split root component {id}")]
+    CannotSplitRoot {
+        /// Root component id.
+        id: ComponentId,
+    },
+    /// An operation requiring a nonempty component tree received an empty tree.
+    #[error("component tree is empty")]
+    EmptyTree,
+    /// Grafting a tree requires the grafted assembly to have exactly one root component.
+    #[error("component tree must have exactly one root (found {roots})")]
+    InvalidRootCount {
+        /// Number of root components found.
+        roots: usize,
+    },
+    /// Reversing an offset articulated joint during tree re-rooting cannot preserve kinematics exactly.
+    #[error("cannot reroot across non-invertible joint on component {id}")]
+    UnsupportedRerootJoint {
+        /// Component owning the joint on the reversed path.
+        id: ComponentId,
+    },
 }

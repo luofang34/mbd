@@ -3,7 +3,9 @@ use std::f64::consts::FRAC_PI_2;
 use glam::{DMat3, DQuat, DVec3};
 
 use super::*;
-use crate::MbdError;
+use crate::{JointSpec, JointState, MbdError};
+
+mod topology;
 
 const AMBIENT_K: f64 = 293.15;
 const CORE: ComponentId = ComponentId(0);
@@ -22,6 +24,7 @@ fn spec(name: &str, placement: Placement, dry_mass_kg: f64, inertia: DMat3) -> C
         dry_inertia_body: inertia,
         thermal_capacity_j_k: 1.0,
         nominal_power_w: 0.0,
+        joint: JointSpec::FIXED,
     }
 }
 
@@ -179,17 +182,19 @@ fn nothing_attached_is_an_error_rather_than_a_nan_cg() {
 }
 
 #[test]
-fn transforms_compose_placement_and_articulation_down_the_chain() {
+fn transforms_compose_placement_and_joint_down_the_chain() {
     let quarter_turn = DQuat::from_rotation_z(FRAC_PI_2);
     let gimbal = Placement {
         parent: Some(CORE),
         translation_m: DVec3::new(0.0, 0.0, 1.0),
         rotation: quarter_turn,
     };
+    let mut gimbal_spec = spec("gimbal", gimbal, 0.0, DMat3::ZERO);
+    gimbal_spec.joint = JointSpec::spherical(core::f64::consts::PI);
     let nozzle = Placement::child_of(ComponentId(1), DVec3::X);
     let mut tree = ComponentTree::new([
         (spec("core", Placement::ROOT, 1.0, DMat3::ZERO), state()),
-        (spec("gimbal", gimbal, 0.0, DMat3::ZERO), state()),
+        (gimbal_spec, state()),
         (spec("nozzle", nozzle, 1.0, DMat3::ZERO), state()),
     ])
     .unwrap();
@@ -198,7 +203,7 @@ fn transforms_compose_placement_and_articulation_down_the_chain() {
     assert_vec_close(rotation * DVec3::X, DVec3::Y);
 
     let deflected = ComponentState {
-        articulation: quarter_turn,
+        joint: JointState::spherical(quarter_turn, DVec3::ZERO),
         ..state()
     };
     tree.set_state(ComponentId(1), deflected).unwrap();
@@ -364,7 +369,11 @@ fn invalid_runtime_state_leaves_the_tree_unchanged() {
             ..state()
         },
         ComponentState {
-            articulation: DQuat::from_xyzw(0.0, 0.0, 0.0, 0.5),
+            joint: JointState::spherical(DQuat::from_xyzw(0.0, 0.0, 0.0, 0.5), DVec3::ZERO),
+            ..state()
+        },
+        ComponentState {
+            dry_mass_delta_kg: -51.0,
             ..state()
         },
     ];

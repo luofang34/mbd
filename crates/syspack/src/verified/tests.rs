@@ -267,12 +267,7 @@ fn a_vacuum_package_has_an_aero_model_with_no_load() {
     let flow = mbd_core::AeroFlowState {
         velocity_air_body_m_s: DVec3::X * 100.0,
         angular_rate_body_rad_s: DVec3::ZERO,
-        ambient: mbd_core::AmbientFlow {
-            pressure_pa: 1.0e5,
-            temperature_k: 288.0,
-            density_kg_m3: 1.2,
-            sound_speed_m_s: 340.0,
-        },
+        ambient: mbd_core::AmbientGas::earth_air(1.0e5, 288.0).unwrap(),
         control_surfaces_rad: [0.0; 8],
     };
     let wrench = package.build_aero_model().unwrap().evaluate(&flow).unwrap();
@@ -420,4 +415,73 @@ fn jsbsim_files_map_declared_assets_to_their_virtual_paths() {
             ..
         })
     ));
+}
+
+#[test]
+fn verified_v2_spacecraft_builds_fluid_electrical_thermal_and_composite_aero() {
+    let prov = br#"{"flight-spec":{"document":"Servicer Spec","tier":"operating_manual"}}"#;
+    let prov_sha = sha256_hex(prov);
+    let mut value = downloaded_capsule();
+    value["schema_version"] = json!(2);
+    value["kind"] = json!("RoboticServicer");
+    value["assets"]["provenance.json"] = json!({"sha256": prov_sha, "size_bytes": prov.len()});
+    value["dynamics"] = json!({
+        "MultibodyComposed": {
+            "aero_elements": [{
+                "site": "hull",
+                "kind": {
+                    "RarefiedPanel": {
+                        "area_m2": 3.0,
+                        "normal_body": [1.0, 0.0, 0.0],
+                        "center_body_m": [0.0, 0.0, 0.0],
+                        "double_sided": true,
+                        "surface_temperature_k": 290.0,
+                        "energy_accommodation": 0.9,
+                        "tangential_accommodation": 0.9
+                    }
+                }
+            }]
+        }
+    });
+    value["subsystems"] = json!({
+        "nominal_bus_voltage_v": 120.0,
+        "tanks": [{
+            "id": 1, "site": "hull", "center_local_m": [0.0, 0.0, 0.0],
+            "geometry": { "Sphere": { "radius_m": 0.5 } },
+            "species": "Xenon", "capacity_mass_kg": 80.0, "initial_mass_kg": 60.0,
+            "feed_regime": "BladderOrDiaphragm"
+        }],
+        "batteries": [{
+            "site": "hull", "capacity_wh": 2000.0, "nominal_voltage_v": 120.0,
+            "max_charge_w": 500.0, "max_discharge_w": 1000.0
+        }],
+        "thermal_nodes": [{
+            "site": "hull", "heat_capacity_j_k": 50000.0, "radiative_area_m2": 4.0,
+            "emissivity": 0.85
+        }],
+        "provenance_asset": "provenance.json"
+    });
+    let assets = BTreeMap::from([("provenance.json".to_owned(), prov.to_vec())]);
+    let source = MemoryPackageSource::new(value.to_string().into_bytes(), assets);
+    let pack = VerifiedSyspack::load(&source).unwrap();
+    let hull_id = pack.component_id("hull").unwrap();
+    assert!((pack.build_fluid_network().unwrap().total_fluid_mass_kg() - 60.0).abs() < 1e-12);
+    assert_eq!(pack.build_electrical_bus().unwrap().batteries().len(), 1);
+    assert!(
+        (pack
+            .build_thermal_network()
+            .unwrap()
+            .temperature_k(hull_id)
+            .unwrap()
+            - 293.15)
+            .abs()
+            < 1e-12
+    );
+    assert_eq!(pack.build_composite_aero().unwrap().elements().len(), 1);
+    assert!(
+        pack.provenance_table()
+            .unwrap()
+            .get("flight-spec")
+            .is_some()
+    );
 }

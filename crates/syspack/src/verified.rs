@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 use mbd_core::{ComponentId, ComponentTree};
+use mbd_provenance::SourceTable;
 use sha2::{Digest, Sha256};
 
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
 mod dynamics;
 mod instruments;
 mod parts;
+mod subsystems;
 mod tree;
 mod typeface;
 
@@ -28,6 +30,7 @@ pub struct VerifiedSyspack {
     component_ids: BTreeMap<String, ComponentId>,
     manifest_sha256: String,
     instrument_pack: Option<InstrumentPackDocument>,
+    provenance_table: Option<SourceTable>,
 }
 
 /// SHA-256 of `bytes` as lowercase hexadecimal: the digest a vehicle pins an
@@ -80,6 +83,19 @@ impl VerifiedSyspack {
         } else {
             None
         };
+        let provenance_table = if let Some(path) = &manifest.subsystems.provenance_asset {
+            let raw = assets
+                .get(path)
+                .ok_or_else(|| SyspackError::UndeclaredAsset { path: path.clone() })?;
+            let table: SourceTable =
+                serde_json::from_slice(raw).map_err(|err| SyspackError::InvalidSubsystem {
+                    detail: format!("malformed provenance asset {path:?}: {err}"),
+                })?;
+            table.validate()?;
+            Some(table)
+        } else {
+            None
+        };
         let package = Self {
             manifest,
             assets,
@@ -87,19 +103,28 @@ impl VerifiedSyspack {
             component_ids,
             manifest_sha256: sha256_hex(&bytes),
             instrument_pack,
+            provenance_table,
         };
         if matches!(
             package.manifest.dynamics,
-            DynamicsSpec::RigidBodyVacuum | DynamicsSpec::RigidBodyBluntCapsule { .. }
+            DynamicsSpec::RigidBodyVacuum
+                | DynamicsSpec::RigidBodyBluntCapsule { .. }
+                | DynamicsSpec::MultibodyComposed { .. }
         ) {
             package.build_aero_model()?;
         }
+        package.validate_all_subsystems()?;
         Ok(package)
     }
 
     /// The manifest.
     pub fn manifest(&self) -> &SyspackManifest {
         &self.manifest
+    }
+
+    /// Optional verified `mbd_provenance::SourceTable` loaded from `subsystems.provenance_asset`.
+    pub fn provenance_table(&self) -> Option<&SourceTable> {
+        self.provenance_table.as_ref()
     }
 
     /// The verified bytes of the asset at `rel_path`, if it is declared.

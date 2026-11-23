@@ -4,12 +4,14 @@ use alloc::string::String;
 
 use glam::{DMat3, DQuat, DVec3};
 
-use crate::MbdError;
+use crate::{JointSpec, JointState, MbdError};
 
 mod mass;
+mod topology;
 mod tree;
 
 pub use mass::MassProperties;
+pub use topology::{GraftedTree, RerootedTree, SplitTrees};
 pub use tree::ComponentTree;
 
 #[cfg(test)]
@@ -80,6 +82,8 @@ pub struct ComponentSpec {
     pub thermal_capacity_j_k: f64,
     /// Nominal electrical draw, W; negative for a source.
     pub nominal_power_w: f64,
+    /// Kinematic joint connecting this component's placed frame to its body frame.
+    pub joint: JointSpec,
 }
 
 impl ComponentSpec {
@@ -104,6 +108,7 @@ impl ComponentSpec {
             let detail = format!("{} is not finite", self.nominal_power_w);
             return Err(invalid("nominal_power_w", detail));
         }
+        self.joint.validate(&self.name)?;
         inertia_defect(&self.dry_inertia_body).map_or(Ok(()), |defect| {
             Err(invalid("dry_inertia_body", defect.to_owned()))
         })
@@ -114,16 +119,18 @@ impl ComponentSpec {
 /// snapshot to resume the tree exactly.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ComponentState {
-    /// Propellant or other fluid, a point mass at the component origin, kg.
+    /// Change to structural dry mass (for example, TPS ablation mass loss <= 0), kg.
+    pub dry_mass_delta_kg: f64,
+    /// Propellant or other fluid, a point mass at the component origin when not
+    /// superseded by a distributed [`crate::DynamicMassContribution`], kg.
     pub fluid_mass_kg: f64,
     /// Carried payload, a point mass at the component origin, kg.
     pub payload_mass_kg: f64,
     /// Whether this component is still joined to its parent. Clearing it
     /// separates the component and its whole subtree, as a staging event does.
     pub attached: bool,
-    /// Gimbal or antenna rotation about the component origin, applied in the
-    /// component's placed frame; it carries the component's children with it.
-    pub articulation: DQuat,
+    /// Runtime coordinate and rate of this component's [`JointSpec`].
+    pub joint: JointState,
     /// Lumped temperature, K.
     pub temperature_k: f64,
 }
@@ -132,18 +139,30 @@ impl ComponentState {
     /// Attached, unarticulated and empty, at `temperature_k`.
     pub fn at_temperature(temperature_k: f64) -> Self {
         Self {
+            dry_mass_delta_kg: 0.0,
             fluid_mass_kg: 0.0,
             payload_mass_kg: 0.0,
             attached: true,
-            articulation: DQuat::IDENTITY,
+            joint: JointState::FIXED,
             temperature_k,
         }
     }
 
-    fn validate(&self, name: &str) -> Result<(), MbdError> {
+    fn validate(&self, spec: &ComponentSpec) -> Result<(), MbdError> {
+        let name = &spec.name;
+        if !self.dry_mass_delta_kg.is_finite() || spec.dry_mass_kg + self.dry_mass_delta_kg < 0.0 {
+            return Err(MbdError::InvalidComponent {
+                name: name.to_owned(),
+                field: "dry_mass_delta_kg",
+                detail: format!(
+                    "{} leaves negative structural dry mass",
+                    self.dry_mass_delta_kg
+                ),
+            });
+        }
         check_nonnegative(name, "fluid_mass_kg", self.fluid_mass_kg)?;
         check_nonnegative(name, "payload_mass_kg", self.payload_mass_kg)?;
-        check_unit_rotation(name, "articulation", self.articulation)?;
+        self.joint.validate(name, &spec.joint.kind)?;
         if self.temperature_k.is_finite() && self.temperature_k > 0.0 {
             return Ok(());
         }
@@ -154,8 +173,10 @@ impl ComponentState {
         })
     }
 
-    fn mass_kg(&self, spec: &ComponentSpec) -> f64 {
-        spec.dry_mass_kg + self.fluid_mass_kg + self.payload_mass_kg
+    pub(super) fn mass_kg(&self, spec: &ComponentSpec) -> f64 {
+        (spec.dry_mass_kg + self.dry_mass_delta_kg).max(0.0)
+            + self.fluid_mass_kg
+            + self.payload_mass_kg
     }
 }
 
@@ -187,7 +208,7 @@ fn check_unit_rotation(name: &str, field: &'static str, rotation: DQuat) -> Resu
 /// `tr(I)/2·E - I` is the second-moment matrix of the distribution, and it
 /// being positive semidefinite is exactly the condition for `I` to have
 /// nonnegative principal moments that obey the triangle inequalities.
-fn inertia_defect(inertia: &DMat3) -> Option<&'static str> {
+pub(crate) fn inertia_defect(inertia: &DMat3) -> Option<&'static str> {
     if !inertia.is_finite() {
         return Some("tensor is not finite");
     }

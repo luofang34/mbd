@@ -25,6 +25,7 @@ fn component(
         None => None,
     };
     let [x, y, z, w] = record.rotation_xyzw;
+    let (joint_spec, joint_state) = record.joint.to_core_joint(&record.key)?;
     let spec = ComponentSpec {
         name: record.name.clone(),
         placement: Placement {
@@ -37,11 +38,13 @@ fn component(
         dry_inertia_body: DMat3::from_cols_array_2d(&record.dry_inertia_body),
         thermal_capacity_j_k: record.thermal_capacity_j_k,
         nominal_power_w: record.nominal_power_w,
+        joint: joint_spec,
     };
     let state = ComponentState {
         fluid_mass_kg: record.initial_fluid_mass_kg,
         payload_mass_kg: record.initial_payload_mass_kg,
         attached: record.attached,
+        joint: joint_state,
         ..ComponentState::at_temperature(INITIAL_COMPONENT_TEMPERATURE_K)
     };
     Ok((spec, state))
