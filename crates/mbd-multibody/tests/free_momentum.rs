@@ -120,14 +120,15 @@ fn model() -> MultibodyModel {
     MultibodyModel::new(&tree(), &[], ModelScale::new(1.0, 233.0, 1.0).unwrap()).unwrap()
 }
 
-/// Tied to the present convention that the base linear rate is held in
-/// root axes (as is `state.set_base` with its result).
+/// Tied to the convention that the base linear rate is held in world axes
+/// and the angular rate in root axes (as is `state.set_base` with its
+/// result).
 fn base_moving_at(velocity_world_m_s: DVec3) -> FloatingBaseState {
     let rotation = DQuat::from_axis_angle(DVec3::new(0.5, 0.2, -0.84).normalize(), 0.9);
     FloatingBaseState {
         position_world_m: DVec3::new(1.0, -2.0, 3.0),
         rotation_world_from_root: rotation,
-        linear_vel_root_m_s: rotation.inverse() * velocity_world_m_s,
+        linear_vel_world_m_s: velocity_world_m_s,
         angular_vel_root_rad_s: TUMBLE_ROOT_RAD_S,
     }
 }

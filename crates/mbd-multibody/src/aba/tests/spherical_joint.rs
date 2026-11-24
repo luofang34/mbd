@@ -221,8 +221,8 @@ fn spherical_non_leaf_matches_equivalent_leaf_under_accelerating_parent() {
         "non-leaf {a_split:?} vs leaf {a_leaf:?} (rel {rel:e})"
     );
     let base_rel = rel_err(
-        split.base_spatial_accel_root.lin,
-        leaf.base_spatial_accel_root.lin,
+        split.base_linear_accel_world_m_s2,
+        leaf.base_linear_accel_world_m_s2,
         1.0,
     );
     assert!(base_rel < 1e-10, "base accel differs (rel {base_rel:e})");

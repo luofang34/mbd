@@ -175,15 +175,16 @@ fn rotor_drive(ctx: &ElementContext<'_, ()>, loads: &mut Loads<'_>) -> Result<()
     loads.add_joint_drive(&JointDriveInput::scalar(ComponentId(1), torque))
 }
 
-/// Tied to the present convention that the base linear rate is held in
-/// root axes (as are the direct writes of `angular_vel_root_rad_s`): the
-/// base state whose root origin moves at `velocity_world_m_s`.
+/// Tied to the convention that the base linear rate is held in world axes
+/// and the angular rate in root axes (as are the direct writes of
+/// `angular_vel_root_rad_s`): the base state whose root origin moves at
+/// `velocity_world_m_s`.
 fn base_moving_at(position: DVec3, velocity_world_m_s: DVec3) -> FloatingBaseState {
     let rotation = attitude();
     FloatingBaseState {
         position_world_m: position,
         rotation_world_from_root: rotation,
-        linear_vel_root_m_s: rotation.inverse() * velocity_world_m_s,
+        linear_vel_world_m_s: velocity_world_m_s,
         angular_vel_root_rad_s: TUMBLE_ROOT_RAD_S,
     }
 }

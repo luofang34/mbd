@@ -7,8 +7,8 @@ use glam::DVec3;
 use mbd_core::{ComponentTree, DynamicMassContribution, WrenchAtSite};
 
 use crate::{
-    FloatingBaseState, ForceFn, Integrator, JointDriveInput, JointLoadInput, ModelOde,
-    MultibodyError, MultibodyModel, Rk4, Workspace,
+    FloatingBaseState, ForceFn, JointDriveInput, JointLoadInput, MultibodyError, MultibodyModel,
+    Rk4, Workspace,
 };
 
 /// Everything a stage callback of [`step_rk4_with_loads`] supplies.
@@ -107,15 +107,15 @@ where
     );
     let mut state = model.state(tree, base_state, &element, &())?;
     let mut work = Workspace::new();
-    let (x, modes) = state.parts_mut();
-    let mut system = ModelOde {
-        model: &model,
-        elements: &element,
-        inputs: &(),
-        modes,
-        work: &mut work,
-    };
-    Rk4::new().advance(&mut system, 0.0, dt_s, x)?;
+    model.advance(
+        &mut Rk4::new(),
+        &element,
+        &(),
+        &mut state,
+        0.0,
+        dt_s,
+        &mut work,
+    )?;
     model.write_joints(&state, tree)?;
     Ok(state.base())
 }

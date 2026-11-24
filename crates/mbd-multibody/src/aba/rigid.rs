@@ -49,7 +49,9 @@ pub(crate) fn solve_rigid(
         .copied()
         .ok_or(MultibodyError::SingularMassMatrix)?;
     let f_ext = wrenches.first().copied().unwrap_or(SpatialForce::ZERO);
-    let v0 = base_state.spatial_velocity_root();
+    // In the inertial frame moving with the root origin the base twist is
+    // its rotation alone, so the bias carries no term in the vehicle speed.
+    let v0 = SpatialMotion::new(base_state.angular_vel_root_rad_s, DVec3::ZERO);
     let f_grav = i_total.mul_motion(SpatialMotion::new(DVec3::ZERO, g_root));
     let bias = v0.cross_force(i_total.mul_motion(v0));
     i_total

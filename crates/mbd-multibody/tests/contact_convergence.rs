@@ -47,6 +47,7 @@ fn settle(steps: u32, t_end: f64) -> (Vec<f64>, bool) {
     let ground = SurfaceSample {
         surface_point_world_m: DVec3::ZERO,
         outward_normal_world: DVec3::Z,
+        velocity_world_m_s: DVec3::ZERO,
         medium: SurfaceMedium::Solid,
         mu_static_override: None,
         mu_dynamic_override: None,
@@ -58,7 +59,7 @@ fn settle(steps: u32, t_end: f64) -> (Vec<f64>, bool) {
     // the bristle force peaks near a fifth of the static friction bound.
     let start = FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, -1.1 * DEPTH_M),
-        linear_vel_root_m_s: DVec3::new(0.2 * 0.9 * G / omega, 0.1 * 0.9 * G / omega, 0.0),
+        linear_vel_world_m_s: DVec3::new(0.2 * 0.9 * G / omega, 0.1 * 0.9 * G / omega, 0.0),
         ..FloatingBaseState::AT_REST
     };
     let mut state = model.state(&tree, &start, &elements, &ground).unwrap();
@@ -84,7 +85,7 @@ fn settle(steps: u32, t_end: f64) -> (Vec<f64>, bool) {
     let base = state.base();
     let mut out = Vec::new();
     out.extend((base.position_world_m / DEPTH_M).to_array());
-    out.extend((base.linear_vel_root_m_s / (DEPTH_M * omega)).to_array());
+    out.extend((base.linear_vel_world_m_s / (DEPTH_M * omega)).to_array());
     out.extend(state.auxiliary().iter().map(|z| z / DEPTH_M));
     (out, stuck)
 }

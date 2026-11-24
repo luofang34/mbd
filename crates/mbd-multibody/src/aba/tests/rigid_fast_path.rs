@@ -72,7 +72,7 @@ fn solve(leaf: Decoupled) -> MultiBodyAccel {
     let base = FloatingBaseState {
         position_world_m: DVec3::new(100.0, 0.0, 0.0),
         rotation_world_from_root: DQuat::from_rotation_y(0.4),
-        linear_vel_root_m_s: DVec3::new(20.0, -5.0, 3.0),
+        linear_vel_world_m_s: DQuat::from_rotation_y(0.4) * DVec3::new(20.0, -5.0, 3.0),
         angular_vel_root_rad_s: DVec3::new(0.2, -0.4, 0.3),
     };
     let wrenches = [WrenchAtSite {
@@ -92,13 +92,16 @@ fn assert_paths_agree(leaf: Decoupled) {
     assert!(fast.used_rigid_fast_path && !general.used_rigid_fast_path);
     // Same composite inertia and wrench assembled in a different order;
     // 1e-12 relative to O(10) accelerations is a rounding-only bound.
-    let (fa, ga) = (
-        fast.base_spatial_accel_root,
-        general.base_spatial_accel_root,
-    );
-    let scale = fa.ang.length().max(fa.lin.length());
+    let pair = |a: &crate::MultiBodyAccel| {
+        (
+            a.base_angular_accel_root_rad_s2,
+            a.base_linear_accel_world_m_s2,
+        )
+    };
+    let (fa, ga) = (pair(&fast), pair(&general));
+    let scale = fa.0.length().max(fa.1.length());
     assert!(
-        (fa.ang - ga.ang).length() < 1e-12 * scale && (fa.lin - ga.lin).length() < 1e-12 * scale,
+        (fa.0 - ga.0).length() < 1e-12 * scale && (fa.1 - ga.1).length() < 1e-12 * scale,
         "fast {fa:?} vs general {ga:?}"
     );
 }

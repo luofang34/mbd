@@ -1,4 +1,4 @@
-use core::f64::consts::TAU;
+use core::f64::consts::{PI, TAU};
 
 use glam::{DMat3, DQuat, DVec3};
 use mbd_core::{
@@ -84,7 +84,7 @@ fn off_cg_impulse_release_conserves_momentum() {
     let base = FloatingBaseState {
         position_world_m: DVec3::new(1000.0, 0.0, 0.0),
         rotation_world_from_root: DQuat::from_rotation_z(0.5),
-        linear_vel_root_m_s: DVec3::new(100.0, -10.0, 5.0),
+        linear_vel_world_m_s: DQuat::from_rotation_z(0.5) * DVec3::new(100.0, -10.0, 5.0),
         angular_vel_root_rad_s: DVec3::new(0.1, -0.2, 0.3),
     };
     let pre = MultiBodyDynamics::system_momentum(&tree, &[], &base).unwrap();
@@ -183,7 +183,7 @@ fn rail_slide_release_ejects_seat_and_conserves_momentum() {
     );
     assert!((pr - init_r.linear_world_kg_m_s).length() < 1e-11);
     assert!((lr - init_r.angular_about_com_world_nms).length() < 1e-11);
-    assert!(ejected.child_state.linear_vel_world_m_s().z < -10.0);
+    assert!(ejected.child_state.linear_vel_world_m_s.z < -10.0);
 }
 
 fn gemini_and_agena_fixtures() -> (ComponentTree, ComponentTree) {
@@ -247,13 +247,13 @@ fn gemini8_docking_and_60rpm_undocking_conserve_momentum() {
     let sa = FloatingBaseState {
         position_world_m: DVec3::ZERO,
         rotation_world_from_root: DQuat::IDENTITY,
-        linear_vel_root_m_s: DVec3::new(10.0, 2.0, -1.0),
+        linear_vel_world_m_s: DVec3::new(10.0, 2.0, -1.0),
         angular_vel_root_rad_s: DVec3::new(TAU, 0.5, -0.3),
     };
     let sb = FloatingBaseState {
         position_world_m: DVec3::new(4.5, 0.0, 0.0),
         rotation_world_from_root: DQuat::from_rotation_y(std::f64::consts::PI),
-        linear_vel_root_m_s: DVec3::new(-9.8, 0.0, 0.0),
+        linear_vel_world_m_s: DQuat::from_rotation_y(PI) * DVec3::new(-9.8, 0.0, 0.0),
         angular_vel_root_rad_s: DVec3::ZERO,
     };
     let (p_before, l_before) = combine_momentum(&gemini, &[], &sa, &agena, &[], &sb);

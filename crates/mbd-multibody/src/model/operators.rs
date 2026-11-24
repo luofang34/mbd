@@ -2,10 +2,12 @@
 //! inverse mass matrix and the Jacobian of a body-fixed point.
 //!
 //! Generalized vectors here use the layout of the state's rate block:
-//! `[base linear 3 | base angular 3 | joint entries ...]`, the base entries
-//! in root axes and the joint entries in each joint's placed frame. A
-//! generalized force is the dual: its product with a generalized velocity is
-//! power.
+//! `[base linear 3 | base angular 3 | joint entries ...]`, the base linear
+//! entries in world axes, the base angular entries in root axes and the
+//! joint entries in each joint's placed frame. A generalized force is the
+//! dual: its product with a generalized velocity is power, so its base
+//! entries are the net force in world axes and the net moment about the
+//! root origin in root axes.
 //!
 //! These are what a constraint solver needs, and a force element reaches
 //! them through the [`Resolution`] handed to
@@ -17,7 +19,7 @@
 //! generalized acceleration, `J v̇_free + J̇ v`, so the multipliers follow
 //! from `A λ = −(J v̇_free + J̇ v)` and are applied as ordinary point forces.
 
-use glam::DVec3;
+use glam::{DMat3, DVec3};
 use mbd_core::{ComponentId, JointKind, JointState};
 
 use super::layout::{read_joint, read1, read3, write1, write3};
@@ -67,7 +69,7 @@ impl MultibodyModel {
         self.check_model_block(x)?;
         let nq = self.layout.position_len();
         let base = FloatingBaseState {
-            linear_vel_root_m_s: v.map_or(DVec3::ZERO, |v| read3(v, 0)),
+            linear_vel_world_m_s: v.map_or(DVec3::ZERO, |v| read3(v, 0)),
             angular_vel_root_rad_s: v.map_or(DVec3::ZERO, |v| read3(v, 3)),
             ..base_of(x, nq)
         };
@@ -137,8 +139,9 @@ impl MultibodyModel {
                 }
             }
         }
+        let r0 = root_rotation(work);
         if let Some(root) = work.link_loads.first_mut() {
-            root.wrench = SpatialForce::new(read3(tau, 3), read3(tau, 0));
+            root.wrench = SpatialForce::new(read3(tau, 3), r0.transpose() * read3(tau, 0));
         }
         self.solve(&base, work, EffortTerms::AppliedOnly)?;
         self.write_generalized_accel(work, generalized_accel);
@@ -148,7 +151,7 @@ impl MultibodyModel {
     /// Writes the solved accelerations in `work` as a generalized vector.
     fn write_generalized_accel(&self, work: &Workspace, out: &mut [f64]) {
         let nq = self.layout.position_len();
-        write3(out, 0, work.base_accel.lin);
+        write3(out, 0, work.base_linear_accel_world);
         write3(out, 3, work.base_accel.ang);
         let mut accels = work.joint_accels.iter();
         for link in &self.links {
@@ -186,12 +189,12 @@ impl MultibodyModel {
     ) -> Result<DVec3, MultibodyError> {
         check_dim(self.layout.velocity_len(), generalized_velocity.len())?;
         let idx = self.chain_index(component)?;
-        self.frames_with(x, Some(generalized_velocity), work)?;
+        let base = self.frames_with(x, Some(generalized_velocity), work)?;
         let f = work
             .frames
             .get(idx)
             .ok_or(MultibodyError::DetachedComponent { id: component })?;
-        Ok(f.r_world * (f.v.lin + f.v.ang.cross(offset_local_m)))
+        Ok(base.linear_vel_world_m_s + f.r_world * (f.v.lin + f.v.ang.cross(offset_local_m)))
     }
 
     /// Transposed Jacobian action `Jᵀ f`: the generalized force equivalent
@@ -236,7 +239,7 @@ impl MultibodyModel {
                 }
             }
             if link.parent_order.is_none() {
-                write3(out, 0, wrench.force);
+                write3(out, 0, frame.r_world * wrench.force);
                 write3(out, 3, wrench.torque);
             } else {
                 wrench = frame.x_parent_from_child.apply_force_to_parent(wrench);
@@ -261,6 +264,7 @@ impl MultibodyModel {
         check_dim(self.layout.velocity_len(), vdot.len())?;
         let target = self.chain_index(component)?;
         self.update_frames(x, work)?;
+        let r0 = root_rotation(work);
         let accel = &mut work.aba.c;
         accel.clear();
         accel.resize(self.links.len(), SpatialMotion::ZERO);
@@ -291,7 +295,9 @@ impl MultibodyModel {
                         + f.v.cross_motion(f.v_j_child)
                         + joint
                 }
-                None => SpatialMotion::new(read3(vdot, 3), read3(vdot, 0)),
+                // Frame velocities are relative to the root origin's, so the
+                // root's spatial acceleration is its inertial one.
+                None => SpatialMotion::new(read3(vdot, 3), r0.transpose() * read3(vdot, 0)),
             };
             if idx == target {
                 let p = offset_local_m;
@@ -312,6 +318,11 @@ impl MultibodyModel {
             .ok_or(mbd_core::MbdError::UnknownComponent { id })?;
         order.ok_or(MultibodyError::DetachedComponent { id })
     }
+}
+
+/// World-from-root rotation of the frames in `work`.
+fn root_rotation(work: &Workspace) -> DMat3 {
+    work.frames.first().map_or(DMat3::IDENTITY, |f| f.r_world)
 }
 
 /// What a resolving element works with: the free acceleration of the

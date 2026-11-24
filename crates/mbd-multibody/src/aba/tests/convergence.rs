@@ -41,7 +41,7 @@ fn kepler_error(dt: f64, t_end: f64) -> f64 {
     let mut tree = solo_body(diag(1.0, 1.0, 1.0));
     let mut base = FloatingBaseState {
         position_world_m: DVec3::X,
-        linear_vel_root_m_s: DVec3::Y,
+        linear_vel_world_m_s: DVec3::Y,
         ..FloatingBaseState::AT_REST
     };
     for _ in 0..(t_end / dt).round() as usize {

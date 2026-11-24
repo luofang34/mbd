@@ -24,7 +24,7 @@ fn flatten(tree: &ComponentTree, base: &FloatingBaseState) -> Vec<f64> {
     let mut out = Vec::new();
     out.extend(base.position_world_m.to_array());
     out.extend(base.rotation_world_from_root.to_array());
-    out.extend(base.linear_vel_root_m_s.to_array());
+    out.extend(base.linear_vel_world_m_s.to_array());
     out.extend(base.angular_vel_root_rad_s.to_array());
     for st in tree.states() {
         let j = st.joint;
@@ -75,7 +75,7 @@ fn kepler() -> Vec<f64> {
     let mut tree = solo_body(diag(1.0, 1.0, 1.0));
     let mut base = FloatingBaseState {
         position_world_m: DVec3::X,
-        linear_vel_root_m_s: DVec3::Y,
+        linear_vel_world_m_s: DVec3::Y,
         ..FloatingBaseState::AT_REST
     };
     for _ in 0..40 {
@@ -175,7 +175,7 @@ fn driven_floating_arm() -> Vec<f64> {
     let mut base = FloatingBaseState {
         position_world_m: DVec3::new(3.0, -1.0, 2.0),
         rotation_world_from_root: DQuat::from_rotation_x(0.3),
-        linear_vel_root_m_s: DVec3::new(0.5, -0.2, 0.1),
+        linear_vel_world_m_s: DQuat::from_rotation_x(0.3) * DVec3::new(0.5, -0.2, 0.1),
         angular_vel_root_rad_s: DVec3::new(0.1, -0.2, 0.15),
     };
     let drives = [

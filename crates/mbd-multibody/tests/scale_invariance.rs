@@ -87,6 +87,17 @@ struct Outcome {
     peak_tension: f64,
 }
 
+fn flat_ground() -> SurfaceSample {
+    SurfaceSample {
+        surface_point_world_m: DVec3::ZERO,
+        outward_normal_world: DVec3::Z,
+        velocity_world_m_s: DVec3::ZERO,
+        medium: SurfaceMedium::Solid,
+        mu_static_override: None,
+        mu_dynamic_override: None,
+    }
+}
+
 fn nondimensional_run(s: Scale, steps: usize) -> Outcome {
     let spec = ComponentSpec {
         name: "body".to_owned(),
@@ -101,13 +112,7 @@ fn nondimensional_run(s: Scale, steps: usize) -> Outcome {
     let model =
         MultibodyModel::with_derived_scale(&tree, &[], TimeScale::Acceleration(s.gravity()))
             .unwrap();
-    let ground = SurfaceSample {
-        surface_point_world_m: DVec3::ZERO,
-        outward_normal_world: DVec3::Z,
-        medium: SurfaceMedium::Solid,
-        mu_static_override: None,
-        mu_dynamic_override: None,
-    };
+    let ground = flat_ground();
     let (foot, line) = (foot(s), winch(s));
     let elements = (
         UniformGravity(DVec3::new(0.0, 0.0, -s.gravity())),
@@ -117,7 +122,9 @@ fn nondimensional_run(s: Scale, steps: usize) -> Outcome {
     let start = FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, 0.7) * s.l,
         rotation_world_from_root: DQuat::from_rotation_y(0.05),
-        linear_vel_root_m_s: DVec3::new(0.3, 0.1, 0.0) * (s.l / s.t),
+        linear_vel_world_m_s: DQuat::from_rotation_y(0.05)
+            * DVec3::new(0.3, 0.1, 0.0)
+            * (s.l / s.t),
         angular_vel_root_rad_s: DVec3::new(0.02, -0.01, 0.03) / s.t,
     };
     let mut state = model.state(&tree, &start, &elements, &ground).unwrap();
@@ -156,7 +163,7 @@ fn nondimensional_run(s: Scale, steps: usize) -> Outcome {
     out.state.extend((base.position_world_m / s.l).to_array());
     out.state.extend(base.rotation_world_from_root.to_array());
     out.state
-        .extend((base.linear_vel_root_m_s * (s.t / s.l)).to_array());
+        .extend((base.linear_vel_world_m_s * (s.t / s.l)).to_array());
     out.state
         .extend((base.angular_vel_root_rad_s * s.t).to_array());
     let aux = state.auxiliary();

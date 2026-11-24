@@ -3,7 +3,9 @@
 
 use glam::DVec3;
 use mbd_core::{ComponentId, WrenchAtSite};
-use mbd_multibody::{ElementContext, ForceElement, Kinematics, Loads, MultibodyError, SpatialMat6};
+use mbd_multibody::{
+    ElementContext, ForceElement, Kinematics, Loads, MediumMotion, MultibodyError, SpatialMat6,
+};
 
 use crate::flow::{AeroInputs, AeroWrench, LinkFlow};
 use crate::{
@@ -76,23 +78,46 @@ impl AeroElement {
         }
     }
 
-    /// The flow at the element's link: link motion relative to the air the
-    /// host samples at the element, in link axes. Fails for a component
-    /// outside the model's attached chain.
+    /// The flow at the element's link at `time_s`: link motion relative to
+    /// the air the host samples at the element, in link axes. Fails for a
+    /// component outside the model's attached chain, or with the host's
+    /// error when the air query fails.
     pub fn flow<'a, I: AeroInputs + ?Sized>(
         &self,
         kinematics: &Kinematics<'_>,
         inputs: &'a I,
+        time_s: f64,
     ) -> Result<LinkFlow<'a>, MultibodyError> {
+        Ok(self.flow_in_air(kinematics, inputs, time_s)?.0)
+    }
+
+    /// [`AeroElement::flow`] with the air's own motion at the link origin,
+    /// which the inertia of entrained air reacts against.
+    fn flow_in_air<'a, I: AeroInputs + ?Sized>(
+        &self,
+        kinematics: &Kinematics<'_>,
+        inputs: &'a I,
+        time_s: f64,
+    ) -> Result<(LinkFlow<'a>, MediumMotion), MultibodyError> {
         let origin = kinematics.point(self.component, DVec3::ZERO)?;
         let sample = kinematics.point(self.component, self.sample_point_link_m())?;
-        let air = inputs.air_at(sample.position_world_m);
-        Ok(LinkFlow {
-            velocity_air_link_m_s: origin.to_link(origin.velocity_world_m_s - air.wind_world_m_s),
-            angular_rate_link_rad_s: origin.to_link(origin.angular_vel_world_rad_s),
+        let air = inputs.air_at(sample.position_world_m, time_s)?;
+        // The air mass turns as a whole, so its velocity at the link origin
+        // is the sampled wind carried along the arm from the sample point.
+        let spin = air.angular_velocity_world_rad_s;
+        let wind_at_origin =
+            air.wind_world_m_s + spin.cross(origin.position_world_m - sample.position_world_m);
+        let flow = LinkFlow {
+            velocity_air_link_m_s: origin.to_link(origin.velocity_world_m_s - wind_at_origin),
+            angular_rate_link_rad_s: origin.to_link(origin.angular_vel_world_rad_s - spin),
             ambient: air.ambient,
             controls: inputs.controls(),
-        })
+        };
+        let medium = MediumMotion {
+            velocity_world_m_s: wind_at_origin,
+            angular_velocity_world_rad_s: spin,
+        };
+        Ok((flow, medium))
     }
 
     /// The loads at `flow` with the element's continuous `state` and
@@ -191,13 +216,13 @@ impl<I: AeroInputs + ?Sized> ForceElement<I> for AeroElement {
         if !ctx.kinematics.is_attached(self.component) {
             return Ok(());
         }
-        let flow = self.flow(ctx.kinematics, ctx.inputs)?;
+        let (flow, air) = self.flow_in_air(ctx.kinematics, ctx.inputs, ctx.time_s)?;
         let out = self.loads(&flow, state, modes)?;
         if let Some(rate) = state_dot.first_mut() {
             *rate = out.inflation_rate;
         }
         if let Some(added) = out.added_inertia {
-            loads.add_inertia(self.component, added)?;
+            loads.add_inertia(self.component, added, &air)?;
         }
         loads.add_wrench(&WrenchAtSite {
             site: self.component,
@@ -224,7 +249,7 @@ impl<I: AeroInputs + ?Sized> ForceElement<I> for AeroElement {
         if *deployed != 0.0 || !ctx.kinematics.is_attached(self.component) {
             return Ok(false);
         }
-        let flow = self.flow(ctx.kinematics, ctx.inputs)?;
+        let flow = self.flow(ctx.kinematics, ctx.inputs, ctx.time_s)?;
         if !m.deploy_commanded(&flow) {
             return Ok(false);
         }

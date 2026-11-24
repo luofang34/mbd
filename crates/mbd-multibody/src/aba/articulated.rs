@@ -53,7 +53,8 @@ pub(crate) struct AbaBuffers {
     /// Articulated bias force per link.
     pub(crate) pa: Vec<SpatialForce>,
     solves: Vec<JointSolve>,
-    a: Vec<SpatialMotion>,
+    /// Spatial acceleration per link, link axes, from the outward pass.
+    pub(crate) a: Vec<SpatialMotion>,
 }
 
 impl AbaBuffers {
@@ -114,7 +115,10 @@ fn aba_pass1_kinematics(
         let f_grav = link
             .i_local
             .mul_motion(SpatialMotion::new(DVec3::ZERO, g_local));
-        let bias = frame.v.cross_force(link.i_inertial.mul_motion(frame.v));
+        let own = frame.v.cross_force(link.i_local.mul_motion(frame.v));
+        // Added inertia brings its own velocity-product force, formed
+        // against its medium when it was added.
+        let bias = link.added_bias.map_or(own, |added| own + added);
         assign_slot(&mut buf.pa, idx, bias - link.ext_force_local - f_grav);
     }
 }

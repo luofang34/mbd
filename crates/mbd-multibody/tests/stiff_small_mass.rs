@@ -43,6 +43,7 @@ fn ground() -> SurfaceSample {
     SurfaceSample {
         surface_point_world_m: DVec3::ZERO,
         outward_normal_world: DVec3::Z,
+        velocity_world_m_s: DVec3::ZERO,
         medium: SurfaceMedium::Solid,
         mu_static_override: None,
         mu_dynamic_override: None,
@@ -161,7 +162,7 @@ fn contact_energy(foot: &ContactPointSpec) -> impl Fn(&ModelState) -> f64 + '_ {
         let base = state.base();
         let z = base.position_world_m.z;
         let pen = (-z).max(0.0);
-        0.5 * MASS_KG * base.linear_vel_root_m_s.length_squared()
+        0.5 * MASS_KG * base.linear_vel_world_m_s.length_squared()
             + MASS_KG * G * z
             + 0.5 * foot.stiffness_n_m * pen * pen
     }
@@ -192,7 +193,7 @@ fn contact_case(fraction: f64, start: DVec3) -> (Run, u32) {
         "rest height {:e}",
         stiff.end.position_world_m.z
     );
-    assert!(stiff.end.linear_vel_root_m_s.length() < 1.0e-6 * (G * SIZE_M).sqrt());
+    assert!(stiff.end.linear_vel_world_m_s.length() < 1.0e-6 * (G * SIZE_M).sqrt());
     (stiff, needed)
 }
 
@@ -260,7 +261,7 @@ fn tether_energy(line: &Tether) -> impl Fn(&ModelState) -> f64 + '_ {
     |state| {
         let base = state.base();
         let stretch = (base.position_world_m.length() - TETHER_M).max(0.0);
-        0.5 * MASS_KG * base.linear_vel_root_m_s.length_squared()
+        0.5 * MASS_KG * base.linear_vel_world_m_s.length_squared()
             + MASS_KG * G * base.position_world_m.z
             + 0.5 * line.spec.stiffness_n_m * stretch * stretch
     }

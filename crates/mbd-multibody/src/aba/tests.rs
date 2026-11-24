@@ -136,7 +136,7 @@ fn rigid_fast_path_matches_unlocked_aba_to_machine_precision() {
     let base = FloatingBaseState {
         position_world_m: DVec3::new(100.0, 0.0, 0.0),
         rotation_world_from_root: DQuat::from_rotation_y(0.4),
-        linear_vel_root_m_s: DVec3::new(20.0, -5.0, 3.0),
+        linear_vel_world_m_s: DQuat::from_rotation_y(0.4) * DVec3::new(20.0, -5.0, 3.0),
         angular_vel_root_rad_s: DVec3::new(0.2, -0.4, 0.3),
     };
     let ext = WrenchAtSite {
@@ -166,15 +166,16 @@ fn rigid_fast_path_matches_unlocked_aba_to_machine_precision() {
     let w = base.angular_vel_root_rad_s;
     let expected_alpha = mp.inertia_cg_body.inverse() * (m_cg - w.cross(mp.inertia_cg_body * w));
     let g_root = base.rotation_world_from_root.conjugate() * DVec3::new(0.0, 0.0, -9.81);
-    let a_cg_rot = f_root / mp.total_mass_kg + g_root
-        - w.cross(base.linear_vel_root_m_s + w.cross(mp.cg_body_m));
-    let expected_a0_lin = a_cg_rot - expected_alpha.cross(mp.cg_body_m);
-    assert!((accel.base_spatial_accel_root.ang - expected_alpha).length() < 1e-12);
+    // Inertial acceleration of the centre of mass, then of the root origin
+    // a rigid arm away from it, in root axes.
+    let a_cg = f_root / mp.total_mass_kg + g_root;
+    let expected_a0_lin =
+        a_cg - expected_alpha.cross(mp.cg_body_m) - w.cross(w.cross(mp.cg_body_m));
+    assert!((accel.base_angular_accel_root_rad_s2 - expected_alpha).length() < 1e-12);
+    let a0_lin = base.rotation_world_from_root.conjugate() * accel.base_linear_accel_world_m_s2;
     assert!(
-        (accel.base_spatial_accel_root.lin - expected_a0_lin).length() < 1e-12,
-        "lin: {:?} vs {:?}",
-        accel.base_spatial_accel_root.lin,
-        expected_a0_lin
+        (a0_lin - expected_a0_lin).length() < 1e-12,
+        "lin: {a0_lin:?} vs {expected_a0_lin:?}"
     );
 }
 
@@ -184,7 +185,7 @@ fn free_floating_7dof_manipulator_conserves_momentum_under_motor_torques() {
     let mut base = FloatingBaseState {
         position_world_m: DVec3::new(10.0, -5.0, 2.0),
         rotation_world_from_root: DQuat::from_rotation_x(0.3),
-        linear_vel_root_m_s: DVec3::new(1.5, -0.5, 0.2),
+        linear_vel_world_m_s: DQuat::from_rotation_x(0.3) * DVec3::new(1.5, -0.5, 0.2),
         angular_vel_root_rad_s: DVec3::new(0.02, -0.01, 0.03),
     };
     let initial = MultiBodyDynamics::system_momentum(&tree, &[], &base).unwrap();
@@ -243,7 +244,7 @@ fn prismatic_rail_acceleration_matches_exact_reduced_mass() {
     let accel =
         MultiBodyDynamics::forward_dynamics(&tree, &[], &base, DVec3::ZERO, &drive, &[]).unwrap();
     assert!((accel.joint_accels[0].q_accel_scalar - 12.5).abs() < 1e-12);
-    assert!((accel.base_spatial_accel_root.lin.x - (-2.5)).abs() < 1e-12);
+    assert!((accel.base_linear_accel_world_m_s2.x - (-2.5)).abs() < 1e-12);
 
     for _ in 0..50 {
         base = step_rk4(&mut tree, &[], &base, DVec3::ZERO, &drive, &[], 0.01).unwrap();
@@ -338,7 +339,7 @@ fn step_rk4_with_forces_achieves_fourth_order_central_orbit_accuracy() {
     let mut base = FloatingBaseState {
         position_world_m: DVec3::new(r0, 0.0, 0.0),
         rotation_world_from_root: DQuat::IDENTITY,
-        linear_vel_root_m_s: DVec3::new(0.0, v_circ, 0.0),
+        linear_vel_world_m_s: DVec3::new(0.0, v_circ, 0.0),
         angular_vel_root_rad_s: DVec3::ZERO,
     };
     for _ in 0..100 {

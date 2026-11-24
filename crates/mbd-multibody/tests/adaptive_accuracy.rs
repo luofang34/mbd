@@ -129,7 +129,7 @@ fn kepler() -> Problem<ForceFn<Field>> {
     let model = MultibodyModel::new(&tree, &[], unit).unwrap();
     let base = FloatingBaseState {
         position_world_m: DVec3::new(1.0 - e, 0.0, 0.0),
-        linear_vel_root_m_s: DVec3::new(0.0, ((1.0 + e) / (1.0 - e)).sqrt(), 0.0),
+        linear_vel_world_m_s: DVec3::new(0.0, ((1.0 + e) / (1.0 - e)).sqrt(), 0.0),
         ..FloatingBaseState::AT_REST
     };
     let elements = ForceFn(central_field as Field);

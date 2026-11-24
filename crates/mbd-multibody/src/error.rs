@@ -1,5 +1,54 @@
 use alloc::string::String;
+use alloc::sync::Arc;
+use core::error::Error;
+use core::fmt;
+
 use mbd_core::{ComponentId, MbdError};
+
+/// The host's own error from an environment query (terrain, air, water),
+/// carried unchanged through a derivative evaluation or a step.
+///
+/// It displays as the host's error and hands it back by reference or by
+/// type, so a host reports the failure it raised and not a latch of its
+/// own. Shared ownership keeps [`MultibodyError`] cloneable; two values are
+/// equal when they carry the same error object.
+#[derive(Debug, Clone)]
+pub struct EnvironmentError(Arc<dyn Error + Send + Sync + 'static>);
+
+impl EnvironmentError {
+    /// Wraps the host's error.
+    pub fn new(source: impl Error + Send + Sync + 'static) -> Self {
+        Self(Arc::new(source))
+    }
+
+    /// The host's error.
+    pub fn get(&self) -> &(dyn Error + Send + Sync + 'static) {
+        &*self.0
+    }
+
+    /// The host's error as its concrete type, if it is an `E`.
+    pub fn downcast_ref<E: Error + 'static>(&self) -> Option<&E> {
+        self.0.downcast_ref()
+    }
+}
+
+impl PartialEq for EnvironmentError {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl fmt::Display for EnvironmentError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(&self.0, f)
+    }
+}
+
+impl Error for EnvironmentError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.0.source()
+    }
+}
 
 /// Errors produced by multibody dynamics, manipulators, constraints, mechanisms, or contact solvers.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
@@ -7,6 +56,14 @@ pub enum MultibodyError {
     /// Underlying component tree, joint, or flow error from `mbd-core`.
     #[error(transparent)]
     Mbd(#[from] MbdError),
+    /// A host environment query failed while an element was evaluated; the
+    /// source is the host's own error.
+    #[error("environment query failed")]
+    Environment(
+        #[from]
+        #[source]
+        EnvironmentError,
+    ),
     /// Invalid scalar/vector configuration or runtime input.
     #[error("multibody parameter {field} is invalid: {value}")]
     InvalidParameter {

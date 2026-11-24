@@ -40,7 +40,7 @@ pub use contact::{
     step_pinned_surface_rest,
 };
 pub use element::{BoxedElement, ElementContext, ForceElement, ForceFn, UniformGravity};
-pub use error::MultibodyError;
+pub use error::{EnvironmentError, MultibodyError};
 pub use hydrodynamics::{HullStation, HullTotals, HydrodynamicsModel, WaterQuery, WaterState};
 pub use integrate::{
     DormandPrince54, Integrator, OdeSystem, Rk4, Rosenbrock23, StepReport, Tolerance, Tolerances,
@@ -58,8 +58,8 @@ pub use mechanism::{
     release_from_rail, undock_vessel,
 };
 pub use model::{
-    Kinematics, Loads, ModelOde, ModelScale, ModelState, MultibodyModel, PointKinematics,
-    Resolution, StateKind, StateLayout, TimeScale, Workspace,
+    CentreOfMass, CentreOfMassOde, Kinematics, Loads, MediumMotion, ModelScale, ModelState,
+    MultibodyModel, PointKinematics, Resolution, StateKind, StateLayout, TimeScale, Workspace,
 };
 pub use spatial::{SpatialForce, SpatialMat6, SpatialMotion, SpatialTransform};
 pub use wheel::{TireModelSpec, Wheel, WheelCommand, WheelEvaluation, WheelSpec, WheelState};

@@ -9,8 +9,8 @@ use mbd_core::{
     ComponentId, ComponentSpec, ComponentState, ComponentTree, JointSpec, Placement, WrenchAtSite,
 };
 use mbd_multibody::{
-    ElementContext, FloatingBaseState, ForceFn, Loads, MultibodyError, MultibodyModel, SpatialMat6,
-    TimeScale, UniformGravity, Workspace,
+    ElementContext, FloatingBaseState, ForceFn, Loads, MediumMotion, MultibodyError,
+    MultibodyModel, SpatialMat6, TimeScale, UniformGravity, Workspace,
 };
 
 const MASS_KG: f64 = 2.0;
@@ -22,7 +22,7 @@ fn entrained_fluid(
     loads: &mut Loads<'_>,
 ) -> Result<(), MultibodyError> {
     let added = SpatialMat6::from_rigid_inertia(ADDED_KG, DVec3::ZERO, DMat3::ZERO);
-    loads.add_inertia(ComponentId(0), added)
+    loads.add_inertia(ComponentId(0), added, &MediumMotion::AT_REST)
 }
 
 /// Linear acceleration of a free body under `elements`.
@@ -54,7 +54,7 @@ fn linear_accel<E: mbd_multibody::ForceElement<()>>(elements: &E) -> DVec3 {
             &mut rates,
         )
         .unwrap();
-    work.base_accel().lin
+    work.base_linear_accel_world_m_s2()
 }
 
 #[test]

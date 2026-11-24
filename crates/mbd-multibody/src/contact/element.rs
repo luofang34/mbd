@@ -59,7 +59,7 @@ impl<I: SurfaceQuery + ?Sized> ForceElement<I> for ContactPointSpec {
             return Ok(());
         }
         let point = ctx.kinematics.point(self.component, self.offset_local_m)?;
-        let surface = ctx.inputs.surface_at(point.position_world_m);
+        let surface = ctx.inputs.surface_at(point.position_world_m, ctx.time_s)?;
         let out = ContactPointSpec::evaluate(
             self,
             &ContactPointState::from_blocks(state, modes),
@@ -80,7 +80,7 @@ impl<I: SurfaceQuery + ?Sized> ForceElement<I> for ContactPointSpec {
             return Ok(false);
         }
         let point = ctx.kinematics.point(self.component, self.offset_local_m)?;
-        let surface = ctx.inputs.surface_at(point.position_world_m);
+        let surface = ctx.inputs.surface_at(point.position_world_m, ctx.time_s)?;
         let mut typed = ContactPointState::from_blocks(state, modes);
         let changed = ContactPointSpec::transition(self, &mut typed, &point, &surface);
         typed.write_blocks(state, modes);

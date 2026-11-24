@@ -7,10 +7,10 @@ use super::layout::{BASE_ATTITUDE, BASE_POSITION, read_joint, write_quat, write1
 use super::state::base_of;
 use super::{Kinematics, Loads, ModelState, MultibodyModel, Resolution, Workspace};
 use crate::MultibodyError;
+use crate::aba::FloatingBaseState;
 use crate::aba::articulated::solve_aba;
 use crate::aba::chain::{EffortTerms, LinkLoads, assemble_link, link_frame, validate_base};
 use crate::aba::rigid::solve_rigid;
-use crate::aba::{FloatingBaseState, SystemMomentum};
 use crate::element::{ElementContext, ForceElement};
 use crate::integrate::check_dim;
 use crate::spatial::SpatialMat6;
@@ -115,12 +115,39 @@ impl MultibodyModel {
     /// nothing else is written. `x` is the flat continuous state (model
     /// block then element block) with unit quaternions; `x_dot` receives the
     /// rate of every component in the same layout, quaternion blocks as the
-    /// embedded rate `q̇ = ½ q ⊗ ω`.
+    /// embedded rate `q̇ = ½ q ⊗ ω`. The base linear rate is the inertial
+    /// acceleration of the root origin in world axes; it is solved in the
+    /// inertial frame moving with the root origin, so no term of it scales
+    /// with the vehicle's speed; the force of inertia an element adds
+    /// follows the link's motion relative to that inertia's medium.
+    ///
+    /// An integrator fed this function directly advances the root origin,
+    /// whose path winds round the centre of mass of a turning vehicle.
+    /// [`crate::CentreOfMassOde`] integrates the centre of mass instead, and
+    /// [`MultibodyModel::advance`] goes through it.
     #[allow(clippy::too_many_arguments)]
     pub fn derivative<I: ?Sized, E: ForceElement<I> + ?Sized>(
         &self,
         time_s: f64,
         x: &[f64],
+        modes: &[f64],
+        elements: &E,
+        inputs: &I,
+        work: &mut Workspace,
+        x_dot: &mut [f64],
+    ) -> Result<(), MultibodyError> {
+        let base = self.update_frames(x, work)?;
+        self.derivative_at_frames(time_s, x, base, modes, elements, inputs, work, x_dot)
+    }
+
+    /// [`MultibodyModel::derivative`] with the frames of `x` already in
+    /// `work` and its base state in `base`.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn derivative_at_frames<I: ?Sized, E: ForceElement<I> + ?Sized>(
+        &self,
+        time_s: f64,
+        x: &[f64],
+        base: FloatingBaseState,
         modes: &[f64],
         elements: &E,
         inputs: &I,
@@ -137,7 +164,6 @@ impl MultibodyModel {
         };
         let (model_block, aux) = x.split_at_checked(n).ok_or(short.clone())?;
         let (rates, aux_dot) = x_dot.split_at_mut_checked(n).ok_or(short)?;
-        let base = self.update_frames(x, work)?;
         self.clear_loads(work);
         let pass = Pass {
             time_s,
@@ -178,6 +204,8 @@ impl MultibodyModel {
             order_of: &self.order_of,
             links: &mut work.link_loads,
             gravity: &mut work.gravity,
+            frames: &work.frames,
+            base_velocity: pass.base.linear_vel_world_m_s,
         };
         let ctx = pass.context(self, &kinematics);
         pass.elements
@@ -213,6 +241,8 @@ impl MultibodyModel {
             order_of: &self.order_of,
             links: &mut work.link_loads,
             gravity: &mut work.gravity,
+            frames: &work.frames,
+            base_velocity: pass.base.linear_vel_world_m_s,
         };
         let mut resolution = Resolution {
             model: self,
@@ -256,20 +286,26 @@ impl MultibodyModel {
                 &mut work.joint_accels,
             )?
         };
+        // The solve runs in the inertial frame moving with the root origin,
+        // where the origin is at rest: its spatial and its inertial
+        // acceleration coincide there, and an acceleration is the same in
+        // every inertial frame.
+        let r0 = work.frames.first().map_or(DMat3::IDENTITY, |f| f.r_world);
+        work.base_linear_accel_world = r0 * work.base_accel.lin;
         Ok(())
     }
 
     /// Writes the rates of the model block from the solved accelerations.
     fn write_rates(&self, base: &FloatingBaseState, work: &Workspace, out: &mut [f64]) {
         let nq = self.layout.position_len();
-        write3(out, BASE_POSITION, base.linear_vel_world_m_s());
+        write3(out, BASE_POSITION, base.linear_vel_world_m_s);
         let q_dot = quat_rate(
             base.rotation_world_from_root,
             base.angular_vel_root_rad_s,
             true,
         );
         write_quat(out, BASE_ATTITUDE, q_dot);
-        write3(out, nq, work.base_accel.lin);
+        write3(out, nq, work.base_linear_accel_world);
         write3(out, nq + 3, work.base_accel.ang);
         let mut accels = work.joint_accels.iter();
         for (link, frame) in self.links.iter().zip(&work.frames) {
@@ -302,45 +338,6 @@ impl MultibodyModel {
                 }
             }
         }
-    }
-
-    /// Total mass, centre of mass and world momenta of the model at `state`.
-    pub fn system_momentum(
-        &self,
-        state: &ModelState,
-        work: &mut Workspace,
-    ) -> Result<SystemMomentum, MultibodyError> {
-        self.update_frames(state.as_slice(), work)?;
-        let parts = || self.links.iter().zip(&work.frames);
-        let mut total_mass = 0.0;
-        let mut first_moment = DVec3::ZERO;
-        for (link, f) in parts() {
-            let cm_world = f.p_world + f.r_world * link.cg_local_m;
-            total_mass += link.mass_kg;
-            first_moment += cm_world * link.mass_kg;
-        }
-        if total_mass <= 0.0 {
-            return Err(MultibodyError::SingularMassMatrix);
-        }
-        let com_world = first_moment / total_mass;
-        let mut lin_mom = DVec3::ZERO;
-        let mut ang_mom = DVec3::ZERO;
-        for (link, f) in parts() {
-            let r: DMat3 = f.r_world;
-            let cm_world = f.p_world + r * link.cg_local_m;
-            let w_world = r * f.v.ang;
-            let v_cm_world = r * (f.v.lin + f.v.ang.cross(link.cg_local_m));
-            let p_i = v_cm_world * link.mass_kg;
-            lin_mom += p_i;
-            let i_cm_world = r * link.inertia_cg_local * r.transpose();
-            ang_mom += i_cm_world * w_world + (cm_world - com_world).cross(p_i);
-        }
-        Ok(SystemMomentum {
-            total_mass_kg: total_mass,
-            com_world_m: com_world,
-            linear_world_kg_m_s: lin_mom,
-            angular_about_com_world_nms: ang_mom,
-        })
     }
 
     /// Spatial inertia of the whole model about the root origin, in root

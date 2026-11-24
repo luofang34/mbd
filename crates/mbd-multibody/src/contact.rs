@@ -12,6 +12,7 @@
 use glam::DVec3;
 use mbd_core::{ComponentId, WrenchAtSite};
 
+use crate::error::EnvironmentError;
 use crate::model::PointKinematics;
 
 mod element;
@@ -39,6 +40,10 @@ pub struct SurfaceSample {
     pub surface_point_world_m: DVec3,
     /// Outward surface normal unit vector in world axes.
     pub outward_normal_world: DVec3,
+    /// Inertial velocity of the surface material at that point in world
+    /// axes, m/s: the ground of a spinning planet, a deck, a conveyor.
+    /// Penetration rate and slip are measured against it.
+    pub velocity_world_m_s: DVec3,
     /// Surface material class (`Solid` vs `Liquid`).
     pub medium: SurfaceMedium,
     /// Optional surface-provided static friction override.
@@ -47,18 +52,28 @@ pub struct SurfaceSample {
     pub mu_dynamic_override: Option<f64>,
 }
 
-/// Host input answering "what surface lies under this point". It is queried
-/// at every integrator stage, so the surface follows the point as it moves
-/// within a step.
+/// Host input answering "what surface lies under this point at this
+/// time". It is queried at every integrator stage with the stage's own
+/// time, so the surface follows the point as it moves within a step and a
+/// moving surface is where it is at that instant.
 pub trait SurfaceQuery {
-    /// Surface nearest to `point_world_m`.
-    fn surface_at(&self, point_world_m: DVec3) -> SurfaceSample;
+    /// Surface nearest to `point_world_m` at `time_s`. A failure aborts
+    /// the evaluation as [`crate::MultibodyError::Environment`].
+    fn surface_at(
+        &self,
+        point_world_m: DVec3,
+        time_s: f64,
+    ) -> Result<SurfaceSample, EnvironmentError>;
 }
 
-/// A single plane is its own answer everywhere.
+/// A single plane is its own answer everywhere and always.
 impl SurfaceQuery for SurfaceSample {
-    fn surface_at(&self, _point_world_m: DVec3) -> SurfaceSample {
-        *self
+    fn surface_at(
+        &self,
+        _point_world_m: DVec3,
+        _time_s: f64,
+    ) -> Result<SurfaceSample, EnvironmentError> {
+        Ok(*self)
     }
 }
 
@@ -209,7 +224,8 @@ impl ContactPointSpec {
         if surface.medium != SurfaceMedium::Solid || penetration <= 0.0 {
             return None;
         }
-        let v_n = point.velocity_world_m_s.dot(normal);
+        let v_rel = point.velocity_world_m_s - surface.velocity_world_m_s;
+        let v_n = v_rel.dot(normal);
         let ramp = if self.damping_ramp_depth_m > 0.0 {
             (penetration / self.damping_ramp_depth_m).min(1.0)
         } else {
@@ -217,7 +233,7 @@ impl ContactPointSpec {
         };
         let normal_force =
             (self.stiffness_n_m * penetration - self.damping_n_s_m * v_n * ramp).max(0.0);
-        let v_tan = point.velocity_world_m_s - normal * v_n;
+        let v_tan = v_rel - normal * v_n;
         let z = state.tangent_deflection_world_m;
         let z_tan = z - normal * z.dot(normal);
         Some(Engagement {

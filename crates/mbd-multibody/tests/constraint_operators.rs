@@ -310,7 +310,7 @@ fn point_acceleration_is_the_rate_of_the_point_velocity() {
     // A tumbling body with a spinning ball joint and a moving hinge.
     let (model, mut state) = floating_arm();
     let mut base = state.base();
-    base.linear_vel_root_m_s = DVec3::new(0.5, -0.2, 0.1);
+    base.linear_vel_world_m_s = base.rotation_world_from_root * DVec3::new(0.5, -0.2, 0.1);
     base.angular_vel_root_rad_s = DVec3::new(0.4, -0.6, 0.3);
     state.set_base(&base);
     let ball = JointState::spherical(

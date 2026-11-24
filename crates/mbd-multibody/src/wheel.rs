@@ -170,7 +170,9 @@ impl WheelSpec {
             });
         }
 
-        let hub_world_vel = hub.velocity_world_m_s;
+        // Suspension rate and tyre slip are against the surface's own
+        // motion.
+        let hub_world_vel = hub.velocity_world_m_s - surface.velocity_world_m_s;
         let v_n = hub_world_vel.dot(normal);
         let fn_mag = (self.spring_n_m * deflection - self.damper_n_s_m * v_n).max(0.0);
 
@@ -240,7 +242,7 @@ impl<I: SurfaceQuery + ?Sized> ForceElement<I> for Wheel {
         let hub = ctx
             .kinematics
             .point(self.spec.component, self.spec.hub_offset_local_m)?;
-        let surface = ctx.inputs.surface_at(hub.position_world_m);
+        let surface = ctx.inputs.surface_at(hub.position_world_m, ctx.time_s)?;
         let typed = WheelState {
             spin_rate_rad_s: read1(state, 0),
         };

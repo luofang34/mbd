@@ -58,7 +58,8 @@ fn rover() -> (ComponentTree, FloatingBaseState) {
     let base = FloatingBaseState {
         position_world_m: DVec3::new(5.0, -2.0, 1.0),
         rotation_world_from_root: DQuat::from_euler(glam::EulerRot::XYZ, 0.2, -0.1, 0.4),
-        linear_vel_root_m_s: DVec3::new(1.0, 0.2, -0.3),
+        linear_vel_world_m_s: DQuat::from_euler(glam::EulerRot::XYZ, 0.2, -0.1, 0.4)
+            * DVec3::new(1.0, 0.2, -0.3),
         angular_vel_root_rad_s: DVec3::new(0.3, -0.2, 0.5),
     };
     (tree, base)
@@ -87,8 +88,11 @@ fn accelerations<I, E: ForceElement<I>>(
             &mut rates,
         )
         .unwrap();
-    let a = work.base_accel();
-    let mut out = vec![a.ang.x, a.ang.y, a.ang.z, a.lin.x, a.lin.y, a.lin.z];
+    let (w, v) = (
+        work.base_angular_accel_root_rad_s2(),
+        work.base_linear_accel_world_m_s2(),
+    );
+    let mut out = vec![w.x, w.y, w.z, v.x, v.y, v.z];
     out.extend(work.joint_accels().iter().map(|j| j.q_accel_scalar));
     out
 }
@@ -227,7 +231,7 @@ fn hull_as_an_element_matches_its_base_state_evaluation() {
     let state = model.state(&tree, &base, &hull, &water).unwrap();
     let mut work = Workspace::new();
     let totals = hull
-        .totals(&model.kinematics(&state, &mut work).unwrap(), &water)
+        .totals(&model.kinematics(&state, &mut work).unwrap(), &water, 0.0)
         .unwrap();
     assert!((totals.total_buoyancy_n - 16128.979901128469).abs() < 1e-9);
     assert!((totals.total_drag_n - 429.6108667673827).abs() < 1e-9);

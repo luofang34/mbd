@@ -55,7 +55,7 @@ fn spec(parent: Option<u32>, at: DVec3, rot: DQuat, mass: f64, joint: JointSpec)
 
 /// Fuselage, two swing wings on vertical hinges, a canopy riser and a
 /// pod carrying a rotor and a dummy: 10 000 kg.
-fn heavy_tree(swing_q: f64, swing_rate: f64) -> ComponentTree {
+pub(super) fn heavy_tree(swing_q: f64, swing_rate: f64) -> ComponentTree {
     hinged_tree(
         swing_q,
         swing_rate,
@@ -129,7 +129,7 @@ fn elements() -> Vec<AeroElement> {
 
 fn base() -> FloatingBaseState {
     FloatingBaseState {
-        linear_vel_root_m_s: DVec3::new(250.0, 10.0, 25.0),
+        linear_vel_world_m_s: DVec3::new(250.0, 10.0, 25.0),
         angular_vel_root_rad_s: rate(),
         ..FloatingBaseState::AT_REST
     }
@@ -137,10 +137,7 @@ fn base() -> FloatingBaseState {
 
 fn env() -> AeroEnvironment<'static> {
     AeroEnvironment {
-        air: AirSample {
-            ambient: sea(),
-            wind_world_m_s: DVec3::ZERO,
-        },
+        air: AirSample::still(sea()),
         controls: &CONTROLS,
     }
 }
@@ -169,7 +166,7 @@ fn root_total(tree: &ComponentTree) -> AeroWrench {
             continue;
         }
         let w = e
-            .loads(&e.flow(&kin, &env()).unwrap(), s, m)
+            .loads(&e.flow(&kin, &env(), 0.0).unwrap(), s, m)
             .unwrap()
             .wrench;
         let pose = kin.link_pose_in_root(e.component).unwrap();
@@ -225,8 +222,11 @@ fn accelerations<E: ForceElement<AeroEnvironment<'static>>>(
             &mut rates,
         )
         .unwrap();
-    let a = work.base_accel();
-    let mut out = vec![a.ang.x, a.ang.y, a.ang.z, a.lin.x, a.lin.y, a.lin.z];
+    let (w, v) = (
+        work.base_angular_accel_root_rad_s2(),
+        work.base_linear_accel_world_m_s2(),
+    );
+    let mut out = vec![w.x, w.y, w.z, v.x, v.y, v.z];
     out.extend(work.joint_accels().iter().map(|j| j.q_accel_scalar));
     out
 }

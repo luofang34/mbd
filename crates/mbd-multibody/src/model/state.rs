@@ -64,7 +64,8 @@ impl ModelState {
         self.x.get(..self.nq).unwrap_or(&[])
     }
 
-    /// Generalized rates `v`: base twist in root axes, then joint rates.
+    /// Generalized rates `v`: base linear velocity in world axes, base
+    /// angular velocity in root axes, then joint rates.
     pub fn velocities(&self) -> &[f64] {
         self.x.get(self.nq..self.nq + self.nv).unwrap_or(&[])
     }
@@ -88,7 +89,7 @@ impl ModelState {
     pub fn set_base(&mut self, base: &FloatingBaseState) {
         write3(&mut self.x, BASE_POSITION, base.position_world_m);
         write_quat(&mut self.x, BASE_ATTITUDE, base.rotation_world_from_root);
-        write3(&mut self.x, self.nq, base.linear_vel_root_m_s);
+        write3(&mut self.x, self.nq, base.linear_vel_world_m_s);
         write3(&mut self.x, self.nq + 3, base.angular_vel_root_rad_s);
     }
 }
@@ -98,7 +99,7 @@ pub(crate) fn base_of(x: &[f64], nq: usize) -> FloatingBaseState {
     FloatingBaseState {
         position_world_m: read3(x, BASE_POSITION),
         rotation_world_from_root: read_quat(x, BASE_ATTITUDE),
-        linear_vel_root_m_s: read3(x, nq),
+        linear_vel_world_m_s: read3(x, nq),
         angular_vel_root_rad_s: read3(x, nq + 3),
     }
 }

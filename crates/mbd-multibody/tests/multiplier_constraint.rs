@@ -100,7 +100,7 @@ fn pendulum() -> (MultibodyModel, ModelState, Elements) {
 /// Kinetic plus potential energy of the rod.
 fn energy(state: &ModelState) -> f64 {
     let base = state.base();
-    0.5 * MASS_KG * base.linear_vel_root_m_s.length_squared()
+    0.5 * MASS_KG * base.linear_vel_world_m_s.length_squared()
         + 0.5 * INERTIA_KG_M2 * base.angular_vel_root_rad_s.length_squared()
         + MASS_KG * G * base.position_world_m.z
 }
@@ -121,15 +121,17 @@ fn pinned_rod_accelerates_as_a_compound_pendulum() {
             &mut rates,
         )
         .unwrap();
-    let accel = work.base_accel();
+    let (angular, linear) = (
+        work.base_angular_accel_root_rad_s2(),
+        work.base_linear_accel_world_m_s2(),
+    );
     // About the pin: weight m g at arm d against inertia I + m d^2.
     let alpha = MASS_KG * G * ARM_M / (INERTIA_KG_M2 + MASS_KG * ARM_M * ARM_M);
     assert!(
-        (accel.ang - DVec3::new(0.0, alpha, 0.0)).length() < 1e-12,
-        "{:?}",
-        accel.ang
+        (angular - DVec3::new(0.0, alpha, 0.0)).length() < 1e-12,
+        "{angular:?}"
     );
-    assert!((accel.lin - DVec3::new(0.0, 0.0, -alpha * ARM_M)).length() < 1e-12);
+    assert!((linear - DVec3::new(0.0, 0.0, -alpha * ARM_M)).length() < 1e-12);
     // The constrained point does not accelerate.
     let v_dot = &rates[model.layout().position_len()..];
     let pinned = model

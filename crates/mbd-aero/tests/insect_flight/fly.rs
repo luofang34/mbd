@@ -21,8 +21,8 @@ use mbd_core::{
     JointSpec, Placement,
 };
 use mbd_multibody::{
-    ElementContext, ForceElement, JointLoadInput, Loads, MultibodyError, SpatialMat6,
-    SurfaceMedium, SurfaceQuery, SurfaceSample,
+    ElementContext, EnvironmentError, ForceElement, JointLoadInput, Loads, MultibodyError,
+    SpatialMat6, SurfaceMedium, SurfaceQuery, SurfaceSample,
 };
 
 /// Blade elements per wing.
@@ -325,15 +325,13 @@ impl FlyWorld {
     pub fn new(spec: &FlySpec) -> Self {
         Self {
             env: AeroEnvironment {
-                air: AirSample {
-                    ambient: spec.ambient(),
-                    wind_world_m_s: DVec3::ZERO,
-                },
+                air: AirSample::still(spec.ambient()),
                 controls: &[],
             },
             floor: SurfaceSample {
                 surface_point_world_m: DVec3::ZERO,
                 outward_normal_world: DVec3::Z,
+                velocity_world_m_s: DVec3::ZERO,
                 medium: SurfaceMedium::Solid,
                 mu_static_override: None,
                 mu_dynamic_override: None,
@@ -343,8 +341,8 @@ impl FlyWorld {
 }
 
 impl AeroInputs for FlyWorld {
-    fn air_at(&self, position_world_m: DVec3) -> AirSample {
-        self.env.air_at(position_world_m)
+    fn air_at(&self, at: DVec3, time_s: f64) -> Result<AirSample, EnvironmentError> {
+        self.env.air_at(at, time_s)
     }
 
     fn controls(&self) -> &[f64] {
@@ -353,8 +351,8 @@ impl AeroInputs for FlyWorld {
 }
 
 impl SurfaceQuery for FlyWorld {
-    fn surface_at(&self, point_world_m: DVec3) -> SurfaceSample {
-        self.floor.surface_at(point_world_m)
+    fn surface_at(&self, at: DVec3, time_s: f64) -> Result<SurfaceSample, EnvironmentError> {
+        self.floor.surface_at(at, time_s)
     }
 }
 

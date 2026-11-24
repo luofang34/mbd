@@ -8,6 +8,7 @@ use mbd_core::ComponentId;
 
 use crate::MultibodyError;
 use crate::element::{ElementContext, ForceElement};
+use crate::error::EnvironmentError;
 use crate::model::{Kinematics, Loads, PointKinematics};
 
 #[cfg(test)]
@@ -103,6 +104,7 @@ impl HydrodynamicsModel {
         &self,
         kinematics: &Kinematics<'_>,
         water: &I,
+        time_s: f64,
         mut each: impl FnMut(&HullStation, &PointKinematics, DVec3, DVec3) -> Result<(), MultibodyError>,
     ) -> Result<(), MultibodyError> {
         if !kinematics.is_attached(self.component) {
@@ -110,7 +112,7 @@ impl HydrodynamicsModel {
         }
         for st in &self.stations {
             let point = kinematics.point(self.component, st.offset_local_m)?;
-            let Some(sample) = water.water_at(point.position_world_m) else {
+            let Some(sample) = water.water_at(point.position_world_m, time_s)? else {
                 continue;
             };
             check_water(&sample)?;
@@ -128,14 +130,16 @@ impl HydrodynamicsModel {
     }
 
     /// Buoyancy, slamming and drag summed over the stations at the state
-    /// `kinematics` describes. Allocates nothing.
+    /// `kinematics` describes, in the water as it is at `time_s`. Allocates
+    /// nothing.
     pub fn totals<I: WaterQuery + ?Sized>(
         &self,
         kinematics: &Kinematics<'_>,
         water: &I,
+        time_s: f64,
     ) -> Result<HullTotals, MultibodyError> {
         let mut out = HullTotals::default();
-        self.for_each_wet(kinematics, water, |st, point, f_buoy, f_hydro| {
+        self.for_each_wet(kinematics, water, time_s, |st, point, f_buoy, f_hydro| {
             let f_local = point.to_link(f_buoy + f_hydro);
             out.total_buoyancy_n += f_buoy.length();
             out.total_drag_n += f_hydro.length();
@@ -194,17 +198,27 @@ fn station_forces(
     Some((f_buoy, f_drag + f_slam))
 }
 
-/// Host input answering "what water is here". `None` means no water near
-/// the queried point.
+/// Host input answering "what water is here at this time". `Ok(None)`
+/// means no water near the queried point.
 pub trait WaterQuery {
-    /// Water state under or around `position_world_m`.
-    fn water_at(&self, position_world_m: DVec3) -> Option<WaterState>;
+    /// Water state under or around `position_world_m` at `time_s`. A
+    /// failure aborts the evaluation as
+    /// [`crate::MultibodyError::Environment`].
+    fn water_at(
+        &self,
+        position_world_m: DVec3,
+        time_s: f64,
+    ) -> Result<Option<WaterState>, EnvironmentError>;
 }
 
-/// One body of water is its own answer everywhere.
+/// One body of water is its own answer everywhere and always.
 impl WaterQuery for WaterState {
-    fn water_at(&self, _position_world_m: DVec3) -> Option<WaterState> {
-        Some(*self)
+    fn water_at(
+        &self,
+        _position_world_m: DVec3,
+        _time_s: f64,
+    ) -> Result<Option<WaterState>, EnvironmentError> {
+        Ok(Some(*self))
     }
 }
 
@@ -219,7 +233,8 @@ impl<I: WaterQuery + ?Sized> ForceElement<I> for HydrodynamicsModel {
         loads: &mut Loads<'_>,
         _state_dot: &mut [f64],
     ) -> Result<(), MultibodyError> {
-        self.for_each_wet(ctx.kinematics, ctx.inputs, |st, point, f_buoy, f_hydro| {
+        let (kin, water) = (ctx.kinematics, ctx.inputs);
+        self.for_each_wet(kin, water, ctx.time_s, |st, point, f_buoy, f_hydro| {
             loads.add_force(
                 self.component,
                 st.offset_local_m,

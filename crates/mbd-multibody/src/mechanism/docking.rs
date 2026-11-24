@@ -125,7 +125,7 @@ fn solve_merged_base_state(
     let zero_base = FloatingBaseState {
         position_world_m: state_a.position_world_m,
         rotation_world_from_root: state_a.rotation_world_from_root,
-        linear_vel_root_m_s: DVec3::ZERO,
+        linear_vel_world_m_s: DVec3::ZERO,
         angular_vel_root_rad_s: DVec3::ZERO,
     };
     let mom_joints = MultiBodyDynamics::system_momentum(merged_tree, dynamic_masses, &zero_base)?;
@@ -144,7 +144,7 @@ fn solve_merged_base_state(
     Ok(FloatingBaseState {
         position_world_m: state_a.position_world_m,
         rotation_world_from_root: state_a.rotation_world_from_root,
-        linear_vel_root_m_s: v0.lin,
+        linear_vel_world_m_s: state_a.rotation_world_from_root * v0.lin,
         angular_vel_root_rad_s: v0.ang,
     })
 }

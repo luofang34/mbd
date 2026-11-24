@@ -70,7 +70,8 @@ impl MultiBodyDynamics {
             &mut rates,
         )?;
         Ok(MultiBodyAccel {
-            base_spatial_accel_root: work.base_accel,
+            base_angular_accel_root_rad_s2: work.base_angular_accel_root_rad_s2(),
+            base_linear_accel_world_m_s2: work.base_linear_accel_world_m_s2(),
             joint_accels: Vec::from(work.joint_accels()),
             used_rigid_fast_path: work.used_rigid_fast_path,
         })

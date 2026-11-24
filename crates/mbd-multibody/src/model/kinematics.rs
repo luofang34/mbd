@@ -65,6 +65,15 @@ impl Kinematics<'_> {
             .ok_or(MultibodyError::DetachedComponent { id: component })
     }
 
+    /// Mass of `component` with everything riding on it, kg, and its centre
+    /// of mass in the component's axes, m.
+    pub fn link_mass(&self, component: ComponentId) -> Result<(f64, DVec3), MultibodyError> {
+        self.links
+            .get(self.index(component)?)
+            .map(|l| (l.mass_kg, l.cg_local_m))
+            .ok_or(MultibodyError::DetachedComponent { id: component })
+    }
+
     /// Pose and twist of the floating base.
     pub const fn base(&self) -> &FloatingBaseState {
         &self.base
@@ -89,7 +98,8 @@ impl Kinematics<'_> {
         let f = self.frame(component)?;
         Ok(PointKinematics {
             position_world_m: f.p_world + f.r_world * offset_local_m,
-            velocity_world_m_s: f.r_world * (f.v.lin + f.v.ang.cross(offset_local_m)),
+            velocity_world_m_s: self.base.linear_vel_world_m_s
+                + f.r_world * (f.v.lin + f.v.ang.cross(offset_local_m)),
             angular_vel_world_rad_s: f.r_world * f.v.ang,
             rotation_world_from_link: f.r_world,
         })
@@ -100,15 +110,13 @@ impl Kinematics<'_> {
     pub fn link_pose_in_root(&self, component: ComponentId) -> Result<LinkPose, MultibodyError> {
         let f = self.frame(component)?;
         let r0t = DMat3::from_quat(self.base.rotation_world_from_root).transpose();
-        let position_root_m = r0t * (f.p_world - self.base.position_world_m);
+        let position_root_m = r0t * f.p_from_root;
         let w0 = self.base.angular_vel_root_rad_s;
         Ok(LinkPose {
             id: component,
             position_root_m,
             rotation_root_from_link: DQuat::from_mat3(&(r0t * f.r_world)).normalize(),
-            linear_vel_root_m_s: r0t * (f.r_world * f.v.lin)
-                - self.base.linear_vel_root_m_s
-                - w0.cross(position_root_m),
+            linear_vel_root_m_s: r0t * (f.r_world * f.v.lin) - w0.cross(position_root_m),
             angular_vel_root_rad_s: r0t * (f.r_world * f.v.ang) - w0,
             attached: true,
         })

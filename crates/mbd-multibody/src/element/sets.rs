@@ -1,7 +1,8 @@
 //! Element collections: a slice, an option, a box, a reference and tuples
-//! are elements themselves, so a host composes its element set with plain
-//! data structures and keeps typed access to every member. Blocks of
-//! continuous state and of modes follow member order.
+//! (up to twelve members) are elements themselves, so a host composes its
+//! element set with plain data structures and keeps typed access to every
+//! member; [`crate::forward_force_element`] makes a struct of elements one
+//! too. Blocks of continuous state and of modes follow member order.
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -122,85 +123,103 @@ impl<I: ?Sized, T: ForceElement<I>> ForceElement<I> for [T] {
     }
 }
 
-/// Forwards every method of the contract to `$target`, a place expression
-/// over `self` naming another element.
-macro_rules! forward_element {
-    ($self:ident => $target:expr) => {
+/// Implements every method of [`ForceElement`](crate::ForceElement) by
+/// forwarding to another element: `$input` is the input type of the
+/// surrounding `impl`, `$target` an expression over `self`.
+///
+/// A struct of elements becomes an element through a tuple of references
+/// to its fields, with state and mode blocks in tuple order:
+///
+/// ```
+/// use mbd_multibody::{ForceElement, UniformGravity, forward_force_element};
+///
+/// struct Loading {
+///     gravity: UniformGravity,
+///     thrusters: Vec<mbd_core::WrenchAtSite>,
+/// }
+///
+/// impl<I: ?Sized> ForceElement<I> for Loading {
+///     forward_force_element!(I, self => (&self.gravity, &self.thrusters));
+/// }
+/// ```
+#[macro_export]
+macro_rules! forward_force_element {
+    ($input:ty, $self:ident => $target:expr) => {
         fn state_len(&$self) -> usize {
-            $target.state_len()
+            $crate::ForceElement::<$input>::state_len(&$target)
         }
 
         fn mode_len(&$self) -> usize {
-            $target.mode_len()
+            $crate::ForceElement::<$input>::mode_len(&$target)
         }
 
         fn has_transitions(&$self) -> bool {
-            $target.has_transitions()
+            $crate::ForceElement::<$input>::has_transitions(&$target)
         }
 
         fn initial_state(&$self, state: &mut [f64], modes: &mut [f64]) {
-            $target.initial_state(state, modes);
+            $crate::ForceElement::<$input>::initial_state(&$target, state, modes);
         }
 
-        fn state_scale(&$self, model: &ModelScale, scale: &mut [f64]) {
-            $target.state_scale(model, scale);
+        fn state_scale(&$self, model: &$crate::ModelScale, scale: &mut [f64]) {
+            $crate::ForceElement::<$input>::state_scale(&$target, model, scale);
         }
 
         fn evaluate(
             &$self,
-            ctx: &ElementContext<'_, I>,
+            ctx: &$crate::ElementContext<'_, $input>,
             state: &[f64],
             modes: &[f64],
-            loads: &mut Loads<'_>,
+            loads: &mut $crate::Loads<'_>,
             state_dot: &mut [f64],
-        ) -> Result<(), MultibodyError> {
-            $target.evaluate(ctx, state, modes, loads, state_dot)
+        ) -> Result<(), $crate::MultibodyError> {
+            $crate::ForceElement::<$input>::evaluate(&$target, ctx, state, modes, loads, state_dot)
         }
 
         fn has_resolution(&$self) -> bool {
-            $target.has_resolution()
+            $crate::ForceElement::<$input>::has_resolution(&$target)
         }
 
         fn resolve(
             &$self,
-            ctx: &ElementContext<'_, I>,
+            ctx: &$crate::ElementContext<'_, $input>,
             state: &[f64],
             modes: &[f64],
-            resolution: &mut Resolution<'_>,
-            loads: &mut Loads<'_>,
-        ) -> Result<(), MultibodyError> {
-            $target.resolve(ctx, state, modes, resolution, loads)
+            resolution: &mut $crate::Resolution<'_>,
+            loads: &mut $crate::Loads<'_>,
+        ) -> Result<(), $crate::MultibodyError> {
+            $crate::ForceElement::<$input>::resolve(&$target, ctx, state, modes, resolution, loads)
         }
 
         fn transition(
             &$self,
-            ctx: &ElementContext<'_, I>,
+            ctx: &$crate::ElementContext<'_, $input>,
             state: &mut [f64],
             modes: &mut [f64],
-        ) -> Result<bool, MultibodyError> {
-            $target.transition(ctx, state, modes)
+        ) -> Result<bool, $crate::MultibodyError> {
+            $crate::ForceElement::<$input>::transition(&$target, ctx, state, modes)
         }
     };
 }
 
 impl<I: ?Sized, T: ForceElement<I>> ForceElement<I> for Vec<T> {
-    forward_element!(self => self.as_slice());
+    forward_force_element!(I, self => *self.as_slice());
 }
 
 impl<I: ?Sized, T: ForceElement<I>, const N: usize> ForceElement<I> for [T; N] {
-    forward_element!(self => self.as_slice());
+    forward_force_element!(I, self => *self.as_slice());
 }
 
 impl<I: ?Sized, T: ForceElement<I>> ForceElement<I> for Option<T> {
-    forward_element!(self => self.as_slice());
+    forward_force_element!(I, self => *self.as_slice());
 }
 
 impl<I: ?Sized, T: ForceElement<I> + ?Sized> ForceElement<I> for Box<T> {
-    forward_element!(self => (**self));
+    forward_force_element!(I, self => **self);
 }
 
 impl<I: ?Sized, T: ForceElement<I> + ?Sized> ForceElement<I> for &T {
-    forward_element!(self => (**self));
+    forward_force_element!(I, self => **self);
 }
 
 /// The empty element set.
@@ -305,3 +324,9 @@ tuple_element!(A: 0, B: 1, C: 2);
 tuple_element!(A: 0, B: 1, C: 2, D: 3);
 tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4);
 tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, J: 8);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, J: 8, K: 9);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, J: 8, K: 9, L: 10);
+tuple_element!(A: 0, B: 1, C: 2, D: 3, E: 4, F: 5, G: 6, H: 7, J: 8, K: 9, L: 10, M: 11);

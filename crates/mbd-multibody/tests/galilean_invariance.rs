@@ -104,15 +104,15 @@ fn model() -> MultibodyModel {
     MultibodyModel::new(&tree(), &[], ModelScale::new(LENGTH_M, 340.0, 1.0).unwrap()).unwrap()
 }
 
-/// Tied to the present convention that the base linear rate is held in
-/// root axes, with [`world_accel`]: the base state whose root origin moves
-/// at `velocity_world_m_s`.
+/// Tied to the convention that the base linear rate is held in world axes
+/// and the angular rate in root axes, with [`world_accel`]: the base state
+/// whose root origin moves at `velocity_world_m_s`.
 fn base_moving_at(velocity_world_m_s: DVec3) -> FloatingBaseState {
     let rotation = DQuat::from_axis_angle(DVec3::new(-0.4, 0.8, 0.45).normalize(), 1.3);
     FloatingBaseState {
         position_world_m: DVec3::new(10.0, -20.0, 5.0),
         rotation_world_from_root: rotation,
-        linear_vel_root_m_s: rotation.inverse() * velocity_world_m_s,
+        linear_vel_world_m_s: velocity_world_m_s,
         angular_vel_root_rad_s: TUMBLE_ROOT_RAD_S,
     }
 }
@@ -131,10 +131,10 @@ struct WorldAccel {
     slide_m_s2: f64,
 }
 
-/// Also tied to the root-axis convention: the rate block holds the time
-/// derivative of the root-axis components, so the inertial acceleration of
-/// the root origin is `R (v̇_root + ω_root × v_root)`; `ω̇` maps by `R`
-/// alone since `ω × ω` vanishes.
+/// Also tied to the state convention: the linear rate block holds the
+/// inertial acceleration of the root origin in world axes; the angular
+/// block holds the time derivative of the root-axis components, and `ω̇`
+/// maps by `R` alone since `ω × ω` vanishes.
 fn world_accel(model: &MultibodyModel, state: &ModelState) -> WorldAccel {
     let mut rates = vec![0.0; state.as_slice().len()];
     let x = state.as_slice();
@@ -154,7 +154,7 @@ fn world_accel(model: &MultibodyModel, state: &ModelState) -> WorldAccel {
     let base = state.base();
     let r = base.rotation_world_from_root;
     WorldAccel {
-        linear_m_s2: r * (v(nq) + base.angular_vel_root_rad_s.cross(base.linear_vel_root_m_s)),
+        linear_m_s2: v(nq),
         angular_rad_s2: r * v(nq + 3),
         hinge_rad_s2: rates[nq + 6],
         slide_m_s2: rates[nq + 7],
@@ -209,7 +209,7 @@ fn sample(model: &MultibodyModel, state: &ModelState) -> Sample {
     let slide = model.joint_state(state, ComponentId(2)).unwrap();
     Sample {
         position_m: base.position_world_m,
-        velocity_world_m_s: base.linear_vel_world_m_s(),
+        velocity_world_m_s: base.linear_vel_world_m_s,
         attitude: base.rotation_world_from_root,
         angular_world_rad_s: base.angular_vel_world_rad_s(),
         joints: [

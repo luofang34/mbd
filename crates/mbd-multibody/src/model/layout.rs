@@ -5,6 +5,8 @@
 //!   base linear rate 3 | base angular rate 3 | joint rates ... | element states ... ]
 //! ```
 //!
+//! The base position and linear rate are in world axes, so the position
+//! rate is the linear rate itself; the base angular rate is in root axes.
 //! Joint blocks follow chain order. A revolute or prismatic joint holds one
 //! coordinate and one rate; a spherical joint a unit quaternion and a
 //! placed-frame angular rate; a compliant joint a translation, a unit

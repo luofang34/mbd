@@ -32,6 +32,12 @@ impl RailSlideState {
             ready_to_release,
         }
     }
+
+    /// Writes the state into a rail element's mode block, for a host that
+    /// arms, resets or restores the mechanism between steps.
+    pub fn write_modes(&self, modes: &mut [f64]) {
+        write_latches(modes, self.fired, self.ready_to_release);
+    }
 }
 
 impl HingeSwingState {
@@ -42,6 +48,12 @@ impl HingeSwingState {
             unlatched,
             ready_to_release,
         }
+    }
+
+    /// Writes the state into a hinge element's mode block, for a host that
+    /// arms, resets or restores the mechanism between steps.
+    pub fn write_modes(&self, modes: &mut [f64]) {
+        write_latches(modes, self.unlatched, self.ready_to_release);
     }
 }
 
@@ -128,8 +140,12 @@ impl<I: ?Sized> ForceElement<I> for RailSlide {
         };
         let fired = before.fired || self.fire;
         let ready = before.ready_to_release || (fired && travel >= self.spec.rail_length_m);
-        write_latches(modes, fired, ready);
-        Ok((fired, ready) != (before.fired, before.ready_to_release))
+        let after = RailSlideState {
+            fired,
+            ready_to_release: ready,
+        };
+        after.write_modes(modes);
+        Ok(after != before)
     }
 }
 
@@ -186,7 +202,11 @@ impl<I: ?Sized> ForceElement<I> for HingeRelease {
         };
         let open = before.unlatched || self.unlatch;
         let ready = before.ready_to_release || (open && angle >= self.spec.release_angle_rad);
-        write_latches(modes, open, ready);
-        Ok((open, ready) != (before.unlatched, before.ready_to_release))
+        let after = HingeSwingState {
+            unlatched: open,
+            ready_to_release: ready,
+        };
+        after.write_modes(modes);
+        Ok(after != before)
     }
 }

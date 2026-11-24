@@ -58,14 +58,14 @@ fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
         let state = model.state(&tree, &base, &hydro, &water).unwrap();
         let mut work = Workspace::new();
         let kin = model.kinematics(&state, &mut work).unwrap();
-        hydro.totals(&kin, &water).unwrap()
+        hydro.totals(&kin, &water, 0.0).unwrap()
     };
 
     // High-speed entry splashdown crossing interface gives strong slamming deceleration!
     let entry = totals(FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, -0.7),
         rotation_world_from_root: DQuat::IDENTITY,
-        linear_vel_root_m_s: DVec3::new(0.0, 0.0, -10.0),
+        linear_vel_world_m_s: DVec3::new(0.0, 0.0, -10.0),
         angular_vel_root_rad_s: DVec3::ZERO,
     });
     assert!(entry.total_drag_n > 400_000.0);
@@ -75,7 +75,7 @@ fn capsule_splashdown_floats_at_equilibrium_draft_and_experiences_entry_slam() {
     let tilted = totals(FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, -0.3),
         rotation_world_from_root: DQuat::from_rotation_x(0.25),
-        linear_vel_root_m_s: DVec3::ZERO,
+        linear_vel_world_m_s: DVec3::ZERO,
         angular_vel_root_rad_s: DVec3::ZERO,
     });
     assert!(

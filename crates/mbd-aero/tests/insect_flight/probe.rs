@@ -95,7 +95,7 @@ pub fn wings(fly: &Fly, kin: &Kinematics<'_>, world: &FlyWorld) -> WingSample {
         let AeroElementKind::FlappingWing(m) = &e.kind else {
             continue;
         };
-        let flow = e.flow(kin, world).unwrap();
+        let flow = e.flow(kin, world, 0.0).unwrap();
         let loads = m.evaluate(&flow).unwrap();
         let o = kin.point(e.component, DVec3::ZERO).unwrap();
         let r = o.rotation_world_from_link;

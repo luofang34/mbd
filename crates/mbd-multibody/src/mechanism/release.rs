@@ -117,10 +117,11 @@ pub fn execute_impulse_release(
     let r_w_from_p = base_state.rotation_world_from_root;
     let c_pos_world = base_state.position_world_m + r_w_from_p * c_pose.position_root_m;
     let c_rot_world = (r_w_from_p * c_pose.rotation_root_from_link).normalize();
-    let v_c_in_p = base_state.linear_vel_root_m_s
-        + base_state
-            .angular_vel_root_rad_s
-            .cross(c_pose.position_root_m)
+    // Velocity of the child root relative to the parent root origin's, in
+    // parent root axes.
+    let v_c_from_p = base_state
+        .angular_vel_root_rad_s
+        .cross(c_pose.position_root_m)
         + c_pose.linear_vel_root_m_s;
     let w_c_in_p = base_state.angular_vel_root_rad_s + c_pose.angular_vel_root_rad_s;
     let r_c_from_p = c_pose.rotation_root_from_link.conjugate();
@@ -129,7 +130,7 @@ pub fn execute_impulse_release(
     let mut child_state = FloatingBaseState {
         position_world_m: c_pos_world,
         rotation_world_from_root: c_rot_world,
-        linear_vel_root_m_s: r_c_from_p * v_c_in_p,
+        linear_vel_world_m_s: base_state.linear_vel_world_m_s + r_w_from_p * v_c_from_p,
         angular_vel_root_rad_s: r_c_from_p * w_c_in_p,
     };
 
@@ -145,9 +146,9 @@ pub fn execute_impulse_release(
         let dv_c = i_c.solve(j_c).ok_or(MultibodyError::SingularMassMatrix)?;
 
         parent_state.angular_vel_root_rad_s += dv_p.ang;
-        parent_state.linear_vel_root_m_s += dv_p.lin;
+        parent_state.linear_vel_world_m_s += r_w_from_p * dv_p.lin;
         child_state.angular_vel_root_rad_s += dv_c.ang;
-        child_state.linear_vel_root_m_s += dv_c.lin;
+        child_state.linear_vel_world_m_s += c_rot_world * dv_c.lin;
     }
 
     Ok(ImpulseReleaseResult {

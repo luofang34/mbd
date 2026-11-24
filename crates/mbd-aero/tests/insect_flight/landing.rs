@@ -111,7 +111,7 @@ fn the_fly_settles_on_its_legs_without_gaining_energy() {
     let e_end = energy(&fly, &model, &elements, &world, &state);
     let depth = -(base.position_world_m.z - 0.25 * r);
     let static_depth = PENETRATION_FRACTION * r;
-    let speed = base.linear_vel_world_m_s().length();
+    let speed = base.linear_vel_world_m_s.length();
     writeln!(
         std::io::stderr(),
         "landing: final depth {:.3} µm (static {:.3} µm), speed {:.2e} m/s, energy \

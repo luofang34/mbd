@@ -3,6 +3,7 @@
 
 use glam::DVec3;
 use mbd_core::{AmbientGas, MbdError};
+use mbd_multibody::EnvironmentError;
 
 /// Undisturbed air at one point, as the host samples it from its atmosphere
 /// and wind models.
@@ -10,8 +11,25 @@ use mbd_core::{AmbientGas, MbdError};
 pub struct AirSample {
     /// Multi-species ambient gas.
     pub ambient: AmbientGas,
-    /// Velocity of the air in world axes, m/s.
+    /// Inertial velocity of the air at the sampled point in world axes,
+    /// m/s.
     pub wind_world_m_s: DVec3,
+    /// Inertial angular velocity of the air mass in world axes, rad/s: the
+    /// spin of an atmosphere carried round by its planet. Around the
+    /// sampled point the air moves as `wind + Ω × Δr`, and a body turning
+    /// at `Ω` does not turn relative to it.
+    pub angular_velocity_world_rad_s: DVec3,
+}
+
+impl AirSample {
+    /// Air at rest in the world: no wind and no rotation.
+    pub const fn still(ambient: AmbientGas) -> Self {
+        Self {
+            ambient,
+            wind_world_m_s: DVec3::ZERO,
+            angular_velocity_world_rad_s: DVec3::ZERO,
+        }
+    }
 }
 
 /// Host input to aerodynamic elements. Each element samples the air at its
@@ -19,8 +37,10 @@ pub struct AirSample {
 /// wind field answers per point; one with a single sample answers the same
 /// everywhere.
 pub trait AeroInputs {
-    /// Air at `position_world_m`.
-    fn air_at(&self, position_world_m: DVec3) -> AirSample;
+    /// Air at `position_world_m` at `time_s`, the time of the integrator
+    /// stage being evaluated. A failure aborts the evaluation as
+    /// [`mbd_multibody::MultibodyError::Environment`].
+    fn air_at(&self, position_world_m: DVec3, time_s: f64) -> Result<AirSample, EnvironmentError>;
 
     /// Control channels in the order elements name them: surface
     /// deflections, rad; rotor speeds, rad/s; parachute commands. A channel
@@ -39,8 +59,12 @@ pub struct AeroEnvironment<'a> {
 }
 
 impl AeroInputs for AeroEnvironment<'_> {
-    fn air_at(&self, _position_world_m: DVec3) -> AirSample {
-        self.air
+    fn air_at(
+        &self,
+        _position_world_m: DVec3,
+        _time_s: f64,
+    ) -> Result<AirSample, EnvironmentError> {
+        Ok(self.air)
     }
 
     fn controls(&self) -> &[f64] {

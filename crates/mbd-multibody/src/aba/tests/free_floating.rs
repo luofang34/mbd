@@ -109,7 +109,7 @@ fn total_momentum(
     let r0 = base.rotation_world_from_root;
     let (x0, v0, w0) = (
         base.position_world_m,
-        base.linear_vel_world_m_s(),
+        base.linear_vel_world_m_s,
         base.angular_vel_world_rad_s(),
     );
     let (q_rel, w_rel) = shoulder_motion(tree, shoulder);
@@ -133,7 +133,7 @@ fn momentum_drift(shoulder: Shoulder, with_tip: bool) -> (f64, f64) {
     let mut base = FloatingBaseState {
         position_world_m: DVec3::new(3.0, -1.0, 2.0),
         rotation_world_from_root: DQuat::from_rotation_x(0.3),
-        linear_vel_root_m_s: DVec3::new(0.5, -0.2, 0.1),
+        linear_vel_world_m_s: DQuat::from_rotation_x(0.3) * DVec3::new(0.5, -0.2, 0.1),
         angular_vel_root_rad_s: DVec3::new(0.1, -0.2, 0.15),
     };
     let drive = [JointDriveInput {

@@ -76,6 +76,7 @@ fn ground() -> SurfaceSample {
     SurfaceSample {
         surface_point_world_m: DVec3::ZERO,
         outward_normal_world: DVec3::Z,
+        velocity_world_m_s: DVec3::ZERO,
         medium: SurfaceMedium::Solid,
         mu_static_override: None,
         mu_dynamic_override: None,
@@ -158,7 +159,7 @@ fn setup() -> (MultibodyModel, ModelState, Elements) {
     let base = FloatingBaseState {
         position_world_m: DVec3::new(0.0, 0.0, 0.85 * SIZE_M),
         rotation_world_from_root: DQuat::from_rotation_y(0.1),
-        linear_vel_root_m_s: DVec3::new(0.4, 0.1, -0.2),
+        linear_vel_world_m_s: DQuat::from_rotation_y(0.1) * DVec3::new(0.4, 0.1, -0.2),
         angular_vel_root_rad_s: DVec3::new(0.1, 0.3, -0.2),
     };
     let state = model.state(&tree, &base, &elements, &ground()).unwrap();

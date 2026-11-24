@@ -66,7 +66,9 @@ fn nondimensional_run(s: Scale, steps: usize) -> Result<Vec<f64>, MultibodyError
     let mut base = FloatingBaseState {
         position_world_m: DVec3::new(0.3, -0.1, 0.2) * s.l,
         rotation_world_from_root: DQuat::from_rotation_y(0.2),
-        linear_vel_root_m_s: DVec3::new(0.1, 0.0, 0.05) * (s.l / s.t),
+        linear_vel_world_m_s: DQuat::from_rotation_y(0.2)
+            * DVec3::new(0.1, 0.0, 0.05)
+            * (s.l / s.t),
         angular_vel_root_rad_s: DVec3::new(0.1, 0.2, 0.3) / s.t,
     };
     let torque = 2.0e-3 * s.m * s.l * s.l / (s.t * s.t);
@@ -78,7 +80,7 @@ fn nondimensional_run(s: Scale, steps: usize) -> Result<Vec<f64>, MultibodyError
     let x = base.position_world_m / s.l;
     let q = base.rotation_world_from_root;
     let w = base.angular_vel_root_rad_s * s.t;
-    let v = base.linear_vel_root_m_s * (s.t / s.l);
+    let v = base.linear_vel_world_m_s * (s.t / s.l);
     Ok(vec![
         j.q_scalar,
         j.q_vel_scalar * s.t,

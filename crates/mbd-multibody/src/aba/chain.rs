@@ -49,7 +49,14 @@ pub(crate) struct LinkFrame {
     pub(crate) r_world: DMat3,
     /// Link origin in world axes, m.
     pub(crate) p_world: DVec3,
-    /// Absolute spatial velocity in link axes.
+    /// Link origin relative to the root origin in world axes, m. Sums of
+    /// moments about the system's own centre of mass use it, so they keep
+    /// their precision however far the root is from the world origin.
+    pub(crate) p_from_root: DVec3,
+    /// Spatial velocity in link axes, relative to the inertial frame that
+    /// moves with the root origin's velocity at this instant. The equations
+    /// of motion are the same in every inertial frame, and in this one no
+    /// term scales with the vehicle's speed.
     pub(crate) v: SpatialMotion,
 }
 
@@ -63,6 +70,9 @@ pub(crate) struct LinkData {
     pub(crate) i_local: SpatialMat6,
     /// Inertia that resists acceleration: `i_local` plus any added inertia.
     pub(crate) i_inertial: SpatialMat6,
+    /// Velocity-product force of the added part of `i_inertial`, present
+    /// with it.
+    pub(crate) added_bias: Option<SpatialForce>,
     pub(crate) v_j_child: SpatialMotion,
     pub(crate) s_1dof: SpatialMotion,
     pub(crate) q_j_rot: DQuat,
@@ -90,6 +100,8 @@ pub(crate) struct LinkLoads {
     pub(crate) wrench: SpatialForce,
     /// Added inertia about the link origin, link axes.
     pub(crate) added_inertia: Option<SpatialMat6>,
+    /// Summed velocity-product force of the added inertia, link axes.
+    pub(crate) added_bias: SpatialForce,
 }
 
 pub(crate) fn validate_base(base_state: &FloatingBaseState) -> Result<(), MultibodyError> {
@@ -107,7 +119,8 @@ pub(crate) fn validate_base(base_state: &FloatingBaseState) -> Result<(), Multib
             value: base_state.rotation_world_from_root.length(),
         });
     }
-    if !base_state.linear_vel_root_m_s.is_finite() || !base_state.angular_vel_root_rad_s.is_finite()
+    if !base_state.linear_vel_world_m_s.is_finite()
+        || !base_state.angular_vel_root_rad_s.is_finite()
     {
         return Err(MultibodyError::InvalidParameter {
             field: "base_velocity",
@@ -284,18 +297,19 @@ pub(crate) fn link_frame(
     let x_parent_from_child = SpatialTransform::from_pos_quat(p_c_in_p, q_p_from_c);
     let j_rot_inv = j_rot.conjugate();
     let v_j_child = SpatialMotion::new(j_rot_inv * j_omega, j_rot_inv * j_vel);
-    let (r_world, p_world, v) = match parent {
+    let (r_world, p_from_root, v) = match parent {
         Some(p) => (
             p.r_world * x_parent_from_child.r_parent_from_child,
-            p.p_world + p.r_world * x_parent_from_child.p_child_in_parent,
+            p.p_from_root + p.r_world * x_parent_from_child.p_child_in_parent,
             x_parent_from_child.apply_motion_to_child(p.v) + v_j_child,
         ),
         None => (
             DMat3::from_quat(base.rotation_world_from_root),
-            base.position_world_m,
-            base.spatial_velocity_root(),
+            DVec3::ZERO,
+            SpatialMotion::new(base.angular_vel_root_rad_s, DVec3::ZERO),
         ),
     };
+    let p_world = base.position_world_m + p_from_root;
     Ok(LinkFrame {
         joint,
         x_parent_from_child,
@@ -303,6 +317,7 @@ pub(crate) fn link_frame(
         v_j_child,
         r_world,
         p_world,
+        p_from_root,
         v,
     })
 }
@@ -343,6 +358,7 @@ pub(crate) fn assemble_link(
         i_inertial: loads
             .added_inertia
             .map_or(link.i_local, |added| link.i_local + added),
+        added_bias: loads.added_inertia.map(|_| loads.added_bias),
         v_j_child: frame.v_j_child,
         s_1dof: effort.s_1dof,
         q_j_rot: frame.q_j_rot,

@@ -15,16 +15,21 @@ pub(crate) mod tests;
 
 pub use solver::MultiBodyDynamics;
 
-/// Full 6-DoF rigid pose and body-frame spatial velocity of a floating base
-/// (vehicle root component) in world coordinates.
+/// Full 6-DoF rigid pose and velocity of a floating base (vehicle root
+/// component) in world coordinates.
+///
+/// The linear velocity is held in world axes and the angular velocity in
+/// root axes. World-axis components do not turn with the body, so a tumble
+/// at orbital speed neither rotates them through the attitude's truncation
+/// nor multiplies rounding by the speed.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FloatingBaseState {
     /// Root origin in inertial/world coordinates, m.
     pub position_world_m: DVec3,
     /// Root-to-world orientation quaternion.
     pub rotation_world_from_root: DQuat,
-    /// Linear velocity of root origin expressed in root axes, m/s.
-    pub linear_vel_root_m_s: DVec3,
+    /// Inertial velocity of the root origin expressed in world axes, m/s.
+    pub linear_vel_world_m_s: DVec3,
     /// Angular velocity of root frame expressed in root axes, rad/s.
     pub angular_vel_root_rad_s: DVec3,
 }
@@ -34,18 +39,19 @@ impl FloatingBaseState {
     pub const AT_REST: Self = Self {
         position_world_m: DVec3::ZERO,
         rotation_world_from_root: DQuat::IDENTITY,
-        linear_vel_root_m_s: DVec3::ZERO,
+        linear_vel_world_m_s: DVec3::ZERO,
         angular_vel_root_rad_s: DVec3::ZERO,
     };
 
-    /// Spatial twist in root axes `(angular_vel_root_rad_s, linear_vel_root_m_s)`.
-    pub const fn spatial_velocity_root(&self) -> SpatialMotion {
-        SpatialMotion::new(self.angular_vel_root_rad_s, self.linear_vel_root_m_s)
+    /// Spatial twist in root axes: the angular velocity and the inertial
+    /// velocity of the root origin, both expressed in root axes.
+    pub fn spatial_velocity_root(&self) -> SpatialMotion {
+        SpatialMotion::new(self.angular_vel_root_rad_s, self.linear_vel_root_m_s())
     }
 
-    /// Inertial velocity of the root origin expressed in world axes, m/s.
-    pub fn linear_vel_world_m_s(&self) -> DVec3 {
-        self.rotation_world_from_root * self.linear_vel_root_m_s
+    /// Inertial velocity of the root origin expressed in root axes, m/s.
+    pub fn linear_vel_root_m_s(&self) -> DVec3 {
+        self.rotation_world_from_root.conjugate() * self.linear_vel_world_m_s
     }
 
     /// Inertial angular velocity expressed in world axes, rad/s.
@@ -127,8 +133,12 @@ pub struct JointAccel {
 /// Complete forward-dynamics output for floating base and all articulated joints.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MultiBodyAccel {
-    /// Time derivative of `(angular_vel_root_rad_s, linear_vel_root_m_s)` in rotating root axes.
-    pub base_spatial_accel_root: SpatialMotion,
+    /// Time derivative of the base angular velocity's root-axis components,
+    /// rad/s².
+    pub base_angular_accel_root_rad_s2: DVec3,
+    /// Inertial acceleration of the root origin in world axes, m/s²: the
+    /// time derivative of [`FloatingBaseState::linear_vel_world_m_s`].
+    pub base_linear_accel_world_m_s2: DVec3,
     /// Joint accelerations in component order for every attached non-fixed joint.
     pub joint_accels: Vec<JointAccel>,
     /// True when evaluated via the zero-DoF `RigidFastPath`.

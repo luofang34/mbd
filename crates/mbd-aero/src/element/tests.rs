@@ -10,6 +10,7 @@ use crate::{
     RotorBemParams, WingSurfaceParams,
 };
 
+mod corotation;
 mod heavy;
 mod pins;
 
