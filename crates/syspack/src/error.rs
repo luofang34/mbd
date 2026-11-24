@@ -1,5 +1,6 @@
 use mbd_airdata::AirdataError;
 use mbd_core::MbdError;
+use mbd_provenance::ProvenanceError;
 
 /// Why a system package could not be read, verified, or built.
 #[derive(Debug, thiserror::Error)]
@@ -276,4 +277,19 @@ pub enum SyspackError {
         /// The package's value.
         actual: String,
     },
+    /// A subsystem manifest entry or built subsystem network is invalid.
+    #[error("invalid subsystem specification: {detail}")]
+    InvalidSubsystem {
+        /// Reason the subsystem configuration is invalid.
+        detail: String,
+    },
+    /// A multibody joint, manipulator, wheel, or composite aero definition is invalid.
+    #[error("invalid multibody configuration: {detail}")]
+    InvalidMultibody {
+        /// Reason the multibody configuration is invalid.
+        detail: String,
+    },
+    /// The declared provenance document failed verification against `mbd-provenance`.
+    #[error("invalid provenance document")]
+    InvalidProvenance(#[from] ProvenanceError),
 }

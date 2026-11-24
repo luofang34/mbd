@@ -24,7 +24,7 @@ fn digest() -> Value {
 
 fn engine_part() -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "mitsubishi-kasei-11",
         "name": "Mitsubishi Kasei 11",
         "version": "1.0.0",
@@ -47,7 +47,7 @@ fn pin(role: &str) -> Value {
 
 fn vehicle(parts: Value) -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "twin",
         "name": "Twin",
         "version": "1.0.0",
@@ -87,7 +87,7 @@ fn a_part_must_be_a_static_holder_of_its_document() {
         })
     ));
     let mut moving = engine_part();
-    moving["dynamics"] = json!("RigidBodyVacuum");
+    moving["dynamics"] = json!({"MultibodyComposed": {"aero_elements": []}});
     assert!(matches!(
         parse(&moving),
         Err(SyspackError::PartShape { .. })

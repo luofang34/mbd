@@ -8,7 +8,7 @@ const DOCUMENT: &[u8] = b"{\"ratings\": []}";
 
 fn part_manifest(kind: &str, document: &str) -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "mitsubishi-kasei-11",
         "name": "Mitsubishi Kasei 11",
         "version": "1.0.0",

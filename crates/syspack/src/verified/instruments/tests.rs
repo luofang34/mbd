@@ -25,7 +25,7 @@ fn panel_component() -> Value {
 /// A pack manifest declaring `instruments` as its instruments.json.
 fn pack_manifest(instruments: &[u8]) -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "ga-analog-six-pack",
         "name": "GA analog six-pack",
         "version": "1.0.0",
@@ -57,7 +57,7 @@ fn pack() -> (MemoryPackageSource, Vec<u8>) {
 /// A vehicle with a pitot-static system that pins `pin`.
 fn vehicle(pin: &InstrumentPackRef) -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "trainer",
         "name": "Trainer",
         "version": "1",
@@ -89,7 +89,7 @@ fn a_pack_loads_its_instruments() {
 fn a_pack_has_a_fixed_shape() {
     let instruments = ga_panel().to_string().into_bytes();
     let mut moving = pack_manifest(&instruments);
-    moving["dynamics"] = json!("RigidBodyVacuum");
+    moving["dynamics"] = json!({"MultibodyComposed": {"aero_elements": []}});
     let mut empty = pack_manifest(&instruments);
     empty["assets"] = json!({});
     let mut nested = pack_manifest(&instruments);

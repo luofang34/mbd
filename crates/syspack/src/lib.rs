@@ -31,9 +31,15 @@ pub use instrument_pack::{
     PointerFaceSpec, PointerShapeSpec, ScalePoint, SourceBinding,
 };
 pub use manifest::{
-    AssetDigest, ComponentRecord, ControlsSpec, DeviceKindSpec, DynamicsSpec,
-    ENGINE_DOCUMENT_ASSET, InstrumentPackRef, MountedDeviceSpec, PROPELLER_DOCUMENT_ASSET, PartRef,
-    SCHEMA_VERSION, SyspackManifest, SystemKind,
+    AbepThrusterRecord, AeroElementKindRecord, AeroElementRecord, AirbreathingEngineRecord,
+    AirbreathingKindRecord, AoCoatingRecord, AssetDigest, BatteryRecord, ComponentRecord,
+    ControlsSpec, DeviceKindSpec, DynamicsSpec, ENGINE_DOCUMENT_ASSET, ElectricThrusterRecord,
+    FeedRegimeRecord, FluidSpeciesRecord, InstrumentPackRef, JointRecord, JointStopRecord,
+    LiquidRocketRecord, ManipulatorRecord, MechanismKindRecord, MechanismRecord, MountedDeviceSpec,
+    PROPELLER_DOCUMENT_ASSET, PartRef, PowerGeneratorKindRecord, PowerGeneratorRecord,
+    SCHEMA_VERSION, SloshModeRecord, SolarArrayRecord, SolidMotorRecord, SubsystemManifest,
+    SyspackManifest, SystemKind, TankGeometryRecord, TankRecord, ThermalLinkRecord,
+    ThermalNodeRecord, TpsShieldRecord, TransferLineRecord, WheelRecord,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use source::DirectoryPackageSource;

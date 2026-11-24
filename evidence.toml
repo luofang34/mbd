@@ -1,0 +1,147 @@
+# Static architecture and structure gates for the mbd workspace.
+# Run: cargo evidence gate --format=jsonl
+schema_version = 1
+
+[workspace]
+name = "mbd"
+exclude_paths = ["target/**"]
+
+[architecture]
+in_scope = [
+    "mbd-core",
+    "mbd-airdata",
+    "mbd-provenance",
+    "mbd-multibody",
+    "mbd-systems",
+    "mbd-aero",
+    "syspack",
+    "mbd-design",
+]
+no_out_of_scope_deps = true
+require_all_crates_layered = true
+
+[[architecture.layers]]
+name = "contracts"
+crates = ["mbd-core", "mbd-airdata", "mbd-provenance"]
+allow_same_layer = false
+
+[[architecture.layers]]
+name = "mechanisms"
+crates = ["mbd-multibody", "mbd-systems"]
+allow_same_layer = false
+
+[[architecture.layers]]
+name = "aerodynamics"
+crates = ["mbd-aero"]
+allow_same_layer = false
+
+[[architecture.layers]]
+name = "syspack"
+crates = ["syspack"]
+allow_same_layer = false
+
+[[architecture.layers]]
+name = "design"
+crates = ["mbd-design"]
+allow_same_layer = false
+
+[[architecture.dep_closures]]
+id = "mbd-core-no-std-thumb"
+package = "mbd-core"
+target = "thumbv7em-none-eabihf"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-core-no-std-wasm"
+package = "mbd-core"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-airdata-no-std-thumb"
+package = "mbd-airdata"
+target = "thumbv7em-none-eabihf"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-airdata-no-std-wasm"
+package = "mbd-airdata"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-multibody-no-std-thumb"
+package = "mbd-multibody"
+target = "thumbv7em-none-eabihf"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-multibody-no-std-wasm"
+package = "mbd-multibody"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-systems-no-std-thumb"
+package = "mbd-systems"
+target = "thumbv7em-none-eabihf"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-systems-no-std-wasm"
+package = "mbd-systems"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-aero-no-std-thumb"
+package = "mbd-aero"
+target = "thumbv7em-none-eabihf"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-aero-no-std-wasm"
+package = "mbd-aero"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { serde = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", serde_json = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", sha2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tempfile = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", anyhow = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tokio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", reqwest = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", hyper = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rand = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", chrono = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", time = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", nalgebra = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", tracing = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", log = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", once_cell = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", lazy_static = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", rayon = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", libc = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", mio = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", socket2 = "no_std crate; std-only or serialization crates belong in syspack or mbd-design", openssl = "no_std crate; std-only or serialization crates belong in syspack or mbd-design" }
+
+[[architecture.dep_closures]]
+id = "mbd-provenance-wasm"
+package = "mbd-provenance"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { tokio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", reqwest = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", hyper = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", mio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", socket2 = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl-sys = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", libc = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", tempfile = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", rusqlite = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)" }
+
+[[architecture.dep_closures]]
+id = "syspack-wasm"
+package = "syspack"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { tokio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", reqwest = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", hyper = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", mio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", socket2 = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl-sys = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", libc = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", tempfile = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", rusqlite = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)" }
+
+[[architecture.dep_closures]]
+id = "mbd-design-wasm"
+package = "mbd-design"
+target = "wasm32-unknown-unknown"
+features = []
+forbid_crates = { tokio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", reqwest = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", hyper = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", mio = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", socket2 = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", openssl-sys = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", libc = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", tempfile = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)", rusqlite = "native OS or runtime crate cannot build for wasm32 (CI clippy covers the workspace on wasm32-unknown-unknown)" }
+
+[structure]
+enabled = true
+max_rs_lines = 500
+max_lib_rs_lines = 100
+max_fn_lines = 80
+require_lib_rs_doc = true
+forbid_mod_rs = true
+forbid_generic_filenames = ["utils.rs", "helpers.rs", "common.rs"]
+forbid_stray_artifacts = true

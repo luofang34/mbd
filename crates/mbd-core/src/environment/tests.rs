@@ -78,6 +78,7 @@ fn draining_a_tank_changes_what_an_off_cg_imu_senses() {
         dry_inertia_body: glam::DMat3::ZERO,
         thermal_capacity_j_k: 0.0,
         nominal_power_w: 0.0,
+        joint: crate::JointSpec::FIXED,
     };
     let state = ComponentState::at_temperature(293.15);
     let root = ComponentId(0);

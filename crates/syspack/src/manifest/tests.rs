@@ -20,14 +20,14 @@ fn component(key: &str, parent: Option<&str>) -> Value {
 
 fn manifest() -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "test_vehicle-2",
         "name": "Test vehicle",
         "version": "1.0.0",
         "kind": "Spacecraft",
         "assets": {},
         "components": [component("root", None)],
-        "dynamics": "RigidBodyVacuum",
+        "dynamics": {"MultibodyComposed": {"aero_elements": []}},
         "devices": [],
     })
 }
@@ -123,16 +123,15 @@ fn omitted_controls_are_none_and_named_ones_stand_alone() {
 }
 
 #[test]
-fn only_schema_one_is_read() {
-    let mut value = manifest();
-    value["schema_version"] = json!(2);
-    assert!(matches!(
-        parse(&value),
-        Err(SyspackError::UnsupportedSchema {
-            found: 2,
-            expected: 1
-        })
-    ));
+fn every_schema_but_the_current_one_is_refused() {
+    for found in [1, 2, 4] {
+        let mut value = manifest();
+        value["schema_version"] = json!(found);
+        assert!(matches!(
+            parse(&value),
+            Err(SyspackError::UnsupportedSchema { found: f, expected: 3 }) if f == found
+        ));
+    }
 }
 
 #[test]
@@ -168,11 +167,13 @@ fn unknown_fields_are_refused_at_every_level() {
     let mut asset = manifest();
     asset["assets"]["a"] = json!({"sha256": "0".repeat(64), "size_bytes": 0, "surprise": 1});
     let mut capsule = manifest();
-    capsule["dynamics"] = json!({"RigidBodyBluntCapsule": {
-        "base_radius_m": 1.0, "nose_radius_m": 2.0, "reference_point_body_m": [-2.0, 0.0, 0.0],
-        "normal_force_slope": 0.1, "axial_drag_coeff": 1.0, "pitch_damping_coeff": -1.0,
-        "sutton_graves_k": 1e-4, "surprise": 1,
-    }});
+    capsule["dynamics"] = json!({"MultibodyComposed": {"aero_elements": [{
+        "site": "root", "kind": {"BluntCapsule": {
+            "base_radius_m": 1.0, "nose_radius_m": 2.0,
+            "reference_point_body_m": [-2.0, 0.0, 0.0], "normal_force_slope": 0.1,
+            "axial_drag_coeff": 1.0, "pitch_damping_coeff": -1.0, "surprise": 1,
+        }},
+    }]}});
     let mut device = manifest();
     device["devices"] = json!([{
         "id": "imu", "site": "root", "kind": {"Icm42688": {"seed": 1, "surprise": 1}},
@@ -369,5 +370,104 @@ fn malformed_json_is_a_parse_error() {
     assert!(matches!(
         SyspackManifest::parse(b"{not json"),
         Err(SyspackError::ManifestParse(_))
+    ));
+}
+
+#[test]
+fn joints_subsystems_and_multibody_aero_parse() {
+    let mut value = manifest();
+    value["kind"] = json!("RoboticServicer");
+    let mut arm_link = component("arm_link_1", Some("root"));
+    arm_link["joint"] = json!({
+        "Revolute": {
+            "axis_local": [0.0, 1.0, 0.0],
+            "min_rad": -1.5,
+            "max_rad": 1.5,
+            "max_torque_nm": 120.0,
+            "damping_nm_s_rad": 2.0,
+            "initial_angle_rad": 0.1
+        }
+    });
+    value["components"].as_array_mut().unwrap().push(arm_link);
+    value["dynamics"] = json!({
+        "MultibodyComposed": {
+            "aero_elements": [{
+                "site": "root",
+                "kind": {
+                    "RarefiedPanel": {
+                        "area_m2": 4.0,
+                        "normal_body": [0.0, 0.0, 1.0],
+                        "center_body_m": [0.0, 0.0, 0.0],
+                        "double_sided": true,
+                        "surface_temperature_k": 300.0,
+                        "energy_accommodation": 0.85,
+                        "tangential_accommodation": 0.85
+                    }
+                }
+            }]
+        }
+    });
+    value["subsystems"] = json!({
+        "nominal_bus_voltage_v": 28.0,
+        "tanks": [{
+            "id": 1,
+            "site": "root",
+            "center_local_m": [0.0, 0.0, 0.0],
+            "geometry": { "Sphere": { "radius_m": 0.6 } },
+            "species": "Xenon",
+            "capacity_mass_kg": 100.0,
+            "initial_mass_kg": 80.0,
+            "feed_regime": "BladderOrDiaphragm"
+        }],
+        "electric_thrusters": [{
+            "site": "root",
+            "mount_offset_local_m": [-1.0, 0.0, 0.0],
+            "thrust_axis_local": [1.0, 0.0, 0.0],
+            "propellant_tank": 1,
+            "isp_s": 3000.0,
+            "total_efficiency": 0.65,
+            "max_power_w": 5000.0
+        }],
+        "manipulators": [{
+            "name": "arm",
+            "base_site": "root",
+            "joint_sites": ["arm_link_1"],
+            "end_effector_offset_m": [1.0, 0.0, 0.0]
+        }]
+    });
+    let parsed = parse(&value).unwrap();
+    assert_eq!(parsed.schema_version, 3);
+    assert_eq!(parsed.subsystems.tanks.len(), 1);
+    assert_eq!(parsed.subsystems.manipulators.len(), 1);
+}
+
+#[test]
+fn external_adapter_and_unknown_subsystem_sites_validate_strictly() {
+    let mut ext = manifest();
+    ext["assets"]["adapter.xml"] = json!({"sha256": "a".repeat(64), "size_bytes": 0});
+    ext["dynamics"] = json!({
+        "ExternalAdapter": {
+            "adapter_kind": "custom_game_pack",
+            "entry_asset": "adapter.xml"
+        }
+    });
+    assert!(parse(&ext).is_ok());
+
+    let mut bad = manifest();
+    bad["subsystems"] = json!({
+        "tanks": [{
+            "id": 1,
+            "site": "missing_comp",
+            "center_local_m": [0.0, 0.0, 0.0],
+            "geometry": { "Sphere": { "radius_m": 0.5 } },
+            "species": "Hydrazine",
+            "capacity_mass_kg": 50.0,
+            "initial_mass_kg": 40.0,
+            "feed_regime": "BladderOrDiaphragm"
+        }]
+    });
+    assert!(matches!(
+        parse(&bad),
+        Err(SyspackError::UnknownComponent { .. })
     ));
 }

@@ -1,9 +1,13 @@
 [workspace]
 resolver = "3"
 members = [
+    "crates/mbd-aero",
     "crates/mbd-airdata",
     "crates/mbd-core",
+    "crates/mbd-design",
+    "crates/mbd-multibody",
     "crates/mbd-provenance",
+    "crates/mbd-systems",
     "crates/syspack",
 ]
 
@@ -15,9 +19,12 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/luofang34/mbd"
 
 [workspace.dependencies]
+mbd-aero = { path = "crates/mbd-aero" }
 mbd-airdata = { path = "crates/mbd-airdata" }
 mbd-core = { path = "crates/mbd-core" }
+mbd-multibody = { path = "crates/mbd-multibody" }
 mbd-provenance = { path = "crates/mbd-provenance" }
+mbd-systems = { path = "crates/mbd-systems" }
 syspack = { path = "crates/syspack" }
 
 glam = { version = "0.33", default-features = false, features = ["f64", "libm"] }

@@ -4,14 +4,28 @@ use serde::{Deserialize, Serialize};
 
 use crate::SyspackError;
 
+mod aero;
+mod joints;
 mod parts;
+mod subsystems;
 pub(crate) mod validate;
 
 #[cfg(test)]
 mod tests;
 
-/// The only `schema_version` this build reads.
-pub const SCHEMA_VERSION: u32 = 1;
+pub use aero::{AeroElementKindRecord, AeroElementRecord};
+pub use joints::{JointRecord, JointStopRecord};
+pub use subsystems::{
+    AbepThrusterRecord, AirbreathingEngineRecord, AirbreathingKindRecord, AoCoatingRecord,
+    BatteryRecord, ElectricThrusterRecord, FeedRegimeRecord, FluidSpeciesRecord,
+    LiquidRocketRecord, ManipulatorRecord, MechanismKindRecord, MechanismRecord,
+    PowerGeneratorKindRecord, PowerGeneratorRecord, SloshModeRecord, SolarArrayRecord,
+    SolidMotorRecord, SubsystemManifest, TankGeometryRecord, TankRecord, ThermalLinkRecord,
+    ThermalNodeRecord, TpsShieldRecord, TransferLineRecord, WheelRecord,
+};
+
+/// The `schema_version` this build reads and writes; no other is accepted.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// What kind of system a package holds. Vehicles and stationary systems share
 /// one schema; [`DynamicsSpec::None`] marks a system that does not move.
@@ -33,6 +47,18 @@ pub enum SystemKind {
     GroundStation,
     /// A vehicle that drives or sails on a surface.
     SurfaceVehicle,
+    /// Multi-stage orbital or suborbital launch vehicle.
+    LaunchVehicle,
+    /// Free-flying orbital transfer stage / tug.
+    OrbitalTug,
+    /// Robotic spacecraft equipped with multi-DoF manipulator arms for servicing.
+    RoboticServicer,
+    /// Planetary surface rover (rocker-bogie or steered wheeled mobility).
+    PlanetaryRover,
+    /// Extraterrestrial rotorcraft (e.g., Mars coaxial drone).
+    MarsRotorcraft,
+    /// Very-low Earth orbit atmosphere-breathing spacecraft.
+    VleoAbepCraft,
     /// Equipment under test on a bench, such as a circuit board or a rig.
     TestBench,
     /// Anything else with components and devices.
@@ -120,6 +146,9 @@ pub struct ComponentRecord {
     pub thermal_capacity_j_k: f64,
     /// Nominal electrical draw, W; negative for a source.
     pub nominal_power_w: f64,
+    /// Kinematic joint connecting this component to its parent placed frame.
+    #[serde(default, skip_serializing_if = "JointRecord::is_fixed")]
+    pub joint: JointRecord,
 }
 
 /// How the system moves.
@@ -142,35 +171,41 @@ pub enum DynamicsSpec {
         /// Further documents as `(package asset, JSBSim virtual path)`.
         additional_assets: Vec<(String, String)>,
     },
-    /// Rigid-body flight with no aerodynamics, as [`mbd_core::VacuumAero`].
-    RigidBodyVacuum,
-    /// Rigid-body flight on a [`mbd_core::BluntBodyCapsuleAero`].
-    RigidBodyBluntCapsule {
-        /// Maximum heat-shield radius, metres.
-        base_radius_m: f64,
-        /// Spherical heat-shield radius, metres.
-        nose_radius_m: f64,
-        /// Heat shield's centre of curvature, body axes, metres.
-        reference_point_body_m: [f64; 3],
-        /// `s` in `CN = s sin α cos α`.
-        normal_force_slope: f64,
-        /// `CA0` in `CA = CA0 cos² α`.
-        axial_drag_coeff: f64,
-        /// Pitch-damping derivative `Cmq`; negative damps.
-        pitch_damping_coeff: f64,
-        /// Sutton-Graves heating constant.
-        sutton_graves_k: f64,
+    /// Flight on the multibody model of the component tree, each
+    /// aerodynamic element loading the component it is mounted on. An
+    /// empty list is flight in vacuum.
+    MultibodyComposed {
+        /// Aerodynamic elements, each bound to a component key.
+        #[serde(default)]
+        aero_elements: Vec<AeroElementRecord>,
+    },
+    /// External flight-model or game adapter asset bundle bridged cleanly at the boundary.
+    ExternalAdapter {
+        /// Adapter family tag (e.g. `"jsbsim_external"`, `"custom_game_pack"`).
+        adapter_kind: String,
+        /// Entry asset path verified inside `manifest.assets`.
+        entry_asset: String,
+        /// Additional verified assets mapped to `(package_asset, adapter_virtual_path)`.
+        #[serde(default)]
+        additional_assets: Vec<(String, String)>,
     },
 }
 
 impl DynamicsSpec {
+    /// Flight with no aerodynamic load: an empty composed vehicle.
+    pub const fn vacuum() -> Self {
+        Self::MultibodyComposed {
+            aero_elements: Vec::new(),
+        }
+    }
+
     /// The manifest name of this dynamics kind.
     pub fn kind(&self) -> &'static str {
         match self {
             Self::None => "None",
             Self::JsbsimXml { .. } => "JsbsimXml",
-            Self::RigidBodyVacuum => "RigidBodyVacuum",
-            Self::RigidBodyBluntCapsule { .. } => "RigidBodyBluntCapsule",
+            Self::MultibodyComposed { .. } => "MultibodyComposed",
+            Self::ExternalAdapter { .. } => "ExternalAdapter",
         }
     }
 }
@@ -198,6 +233,28 @@ pub struct ControlsSpec {
     pub has_retractable_gear: bool,
     /// Wheel brakes.
     pub has_wheel_brakes: bool,
+    /// Reaction control system thrusters.
+    pub has_rcs: bool,
+    /// Gimbaled main engine vectoring.
+    pub has_gimbal: bool,
+    /// Pyrotechnic or spring stage separation.
+    pub has_staging: bool,
+    /// Docking capture / undocking controls.
+    pub has_docking: bool,
+    /// Parachute mortar / reefing controls.
+    pub has_parachute: bool,
+    /// Crew ejection seat / escape catapult controls.
+    pub has_ejection_seat: bool,
+    /// Articulated multi-DoF robotic arm controls.
+    pub has_manipulator_arm: bool,
+    /// Closed-loop or manual CG fuel trim pump controls.
+    pub has_cg_fuel_trim: bool,
+    /// Variable wing-sweep actuation.
+    pub has_variable_sweep: bool,
+    /// Electric propulsion throttle / bus management.
+    pub has_electric_propulsion: bool,
+    /// Driven/steered planetary rover wheels.
+    pub has_rover_drive: bool,
 }
 
 /// What a mounted device is.
@@ -349,6 +406,10 @@ pub struct SyspackManifest {
     /// What a `TypefacePack` holds; nothing for any other kind.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub typeface: Option<crate::TypefaceSpec>,
+    /// Declarative fluid, propulsion, electrical, thermal, mechanism, manipulator,
+    /// and wheel subsystems hosted on the vehicle's component tree.
+    #[serde(default, skip_serializing_if = "SubsystemManifest::is_empty")]
+    pub subsystems: SubsystemManifest,
 }
 
 impl SyspackManifest {

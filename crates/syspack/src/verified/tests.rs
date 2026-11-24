@@ -5,7 +5,9 @@ use mbd_core::{ComponentId, MbdError};
 use serde_json::{Value, json};
 
 use super::*;
-use crate::{ControlsSpec, MemoryPackageSource, SystemKind};
+
+mod aero;
+use crate::{ControlsSpec, DynamicsSpec, MemoryPackageSource, SystemKind};
 
 const ZERO_INERTIA: [[f64; 3]; 3] = [[0.0; 3]; 3];
 
@@ -25,16 +27,23 @@ fn component(key: &str, parent: Option<&str>, x_m: f64, mass_kg: f64, inertia: f
     })
 }
 
+/// A modified-Newtonian capsule on the root, as
+/// [`crate::AeroElementRecord::blunt_capsule_newtonian`] writes it.
 fn capsule_dynamics() -> Value {
-    json!({"RigidBodyBluntCapsule": {
-        "base_radius_m": 1.0,
-        "nose_radius_m": 2.0,
-        "reference_point_body_m": [-2.0, 0.0, 0.0],
-        "normal_force_slope": 0.1,
-        "axial_drag_coeff": 1.2,
-        "pitch_damping_coeff": -5.0,
-        "sutton_graves_k": 1.7415e-4,
-    }})
+    let record = crate::AeroElementRecord::blunt_capsule_newtonian(
+        "root",
+        1.0,
+        2.0,
+        [-2.0, 0.0, 0.0],
+        0.1,
+        1.2,
+        -5.0,
+        1.7415e-4,
+    );
+    serde_json::to_value(DynamicsSpec::MultibodyComposed {
+        aero_elements: vec![record],
+    })
+    .unwrap()
 }
 
 /// A vehicle nobody compiled: every part of it arrives as JSON.
@@ -44,7 +53,7 @@ fn downloaded_capsule() -> Value {
     let mut payload = component("payload_bay", Some("root"), 0.4, 2.0, 0.0);
     payload["initial_payload_mass_kg"] = json!(8.0);
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "community-capsule",
         "name": "Community capsule",
         "version": "0.3.1",
@@ -122,6 +131,7 @@ fn a_parent_may_be_listed_after_its_child() {
         component("late_root", None, 0.0, 1.0, 0.0),
     ]);
     value["devices"] = json!([]);
+    value["dynamics"] = serde_json::to_value(DynamicsSpec::vacuum()).unwrap();
     let package = load_json(&value).unwrap();
     let child = package.tree().spec(ComponentId(0)).unwrap();
     assert_eq!(child.placement.parent, Some(ComponentId(1)));
@@ -197,6 +207,7 @@ fn component_cycles_are_typed_by_key() {
         component("c", Some("b"), 0.0, 1.0, 0.0),
     ]);
     value["devices"] = json!([]);
+    value["dynamics"] = serde_json::to_value(DynamicsSpec::vacuum()).unwrap();
     assert!(matches!(
         load_json(&value),
         Err(SyspackError::ComponentCycle { key }) if key == "a"
@@ -245,47 +256,17 @@ fn a_tree_with_nothing_attached_fails() {
 #[test]
 fn unphysical_capsule_parameters_fail_at_load() {
     let mut value = downloaded_capsule();
-    value["dynamics"]["RigidBodyBluntCapsule"]["nose_radius_m"] = json!(0.5);
+    value["dynamics"]["MultibodyComposed"]["aero_elements"][0]["kind"]["BluntCapsule"]["base_radius_m"] =
+        json!(-1.0);
     assert!(matches!(
         load_json(&value),
         Err(SyspackError::InvalidAero(_))
     ));
 }
 
-#[test]
-fn the_capsule_aero_reads_back_and_evaluates() {
-    let package = load_json(&downloaded_capsule()).unwrap();
-    assert_eq!(package.capsule_aero().unwrap().params().base_radius_m, 1.0);
-    package.build_aero_model().unwrap();
-}
-
-#[test]
-fn a_vacuum_package_has_an_aero_model_with_no_load() {
-    let mut value = downloaded_capsule();
-    value["dynamics"] = json!("RigidBodyVacuum");
-    let package = load_json(&value).unwrap();
-    let flow = mbd_core::AeroFlowState {
-        velocity_air_body_m_s: DVec3::X * 100.0,
-        angular_rate_body_rad_s: DVec3::ZERO,
-        ambient: mbd_core::AmbientFlow {
-            pressure_pa: 1.0e5,
-            temperature_k: 288.0,
-            density_kg_m3: 1.2,
-            sound_speed_m_s: 340.0,
-        },
-        control_surfaces_rad: [0.0; 8],
-    };
-    let wrench = package.build_aero_model().unwrap().evaluate(&flow).unwrap();
-    assert_eq!(wrench.force_body_n, DVec3::ZERO);
-    assert!(matches!(
-        package.capsule_aero(),
-        Err(SyspackError::DynamicsMismatch { .. })
-    ));
-}
-
 fn ground_station() -> Value {
     json!({
-        "schema_version": 1,
+        "schema_version": 3,
         "id": "tracking-station",
         "name": "Tracking station",
         "version": "1.0.0",
@@ -347,10 +328,8 @@ fn a_test_bench_keeps_its_custom_board_under_the_same_checks() {
 #[test]
 fn a_stationary_system_has_no_aero_model_and_no_jsbsim_files() {
     let package = load_json(&ground_station()).unwrap();
-    for error in [
-        package.build_aero_model().err().unwrap(),
-        package.capsule_aero().err().unwrap(),
-    ] {
+    {
+        let error = package.build_aero_elements().err().unwrap();
         assert!(matches!(
             error,
             SyspackError::DynamicsMismatch {
@@ -414,10 +393,78 @@ fn jsbsim_files_map_declared_assets_to_their_virtual_paths() {
         ]
     );
     assert!(matches!(
-        package.build_aero_model(),
+        package.build_aero_elements(),
         Err(SyspackError::DynamicsMismatch {
             declared: "JsbsimXml",
             ..
         })
     ));
+}
+
+#[test]
+fn verified_spacecraft_builds_fluid_electrical_thermal_and_composite_aero() {
+    let prov = br#"{"flight-spec":{"document":"Servicer Spec","tier":"operating_manual"}}"#;
+    let prov_sha = sha256_hex(prov);
+    let mut value = downloaded_capsule();
+    value["kind"] = json!("RoboticServicer");
+    value["assets"]["provenance.json"] = json!({"sha256": prov_sha, "size_bytes": prov.len()});
+    value["dynamics"] = json!({
+        "MultibodyComposed": {
+            "aero_elements": [{
+                "site": "hull",
+                "kind": {
+                    "RarefiedPanel": {
+                        "area_m2": 3.0,
+                        "normal_body": [1.0, 0.0, 0.0],
+                        "center_body_m": [0.0, 0.0, 0.0],
+                        "double_sided": true,
+                        "surface_temperature_k": 290.0,
+                        "energy_accommodation": 0.9,
+                        "tangential_accommodation": 0.9
+                    }
+                }
+            }]
+        }
+    });
+    value["subsystems"] = json!({
+        "nominal_bus_voltage_v": 120.0,
+        "tanks": [{
+            "id": 1, "site": "hull", "center_local_m": [0.0, 0.0, 0.0],
+            "geometry": { "Sphere": { "radius_m": 0.5 } },
+            "species": "Xenon", "capacity_mass_kg": 80.0, "initial_mass_kg": 60.0,
+            "feed_regime": "BladderOrDiaphragm"
+        }],
+        "batteries": [{
+            "site": "hull", "capacity_wh": 2000.0, "nominal_voltage_v": 120.0,
+            "max_charge_w": 500.0, "max_discharge_w": 1000.0
+        }],
+        "thermal_nodes": [{
+            "site": "hull", "heat_capacity_j_k": 50000.0, "radiative_area_m2": 4.0,
+            "emissivity": 0.85
+        }],
+        "provenance_asset": "provenance.json"
+    });
+    let assets = BTreeMap::from([("provenance.json".to_owned(), prov.to_vec())]);
+    let source = MemoryPackageSource::new(value.to_string().into_bytes(), assets);
+    let pack = VerifiedSyspack::load(&source).unwrap();
+    let hull_id = pack.component_id("hull").unwrap();
+    assert!((pack.build_fluid_network().unwrap().total_fluid_mass_kg() - 60.0).abs() < 1e-12);
+    assert_eq!(pack.build_electrical_bus().unwrap().batteries().len(), 1);
+    assert!(
+        (pack
+            .build_thermal_network()
+            .unwrap()
+            .temperature_k(hull_id)
+            .unwrap()
+            - 293.15)
+            .abs()
+            < 1e-12
+    );
+    assert_eq!(pack.build_aero_elements().unwrap().len(), 1);
+    assert!(
+        pack.provenance_table()
+            .unwrap()
+            .get("flight-spec")
+            .is_some()
+    );
 }

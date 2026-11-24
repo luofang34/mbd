@@ -12,8 +12,12 @@ workspace = true
 
 [dependencies]
 glam = { workspace = true }
+mbd-aero = { workspace = true }
 mbd-airdata = { workspace = true }
 mbd-core = { workspace = true }
+mbd-multibody = { workspace = true }
+mbd-provenance = { workspace = true }
+mbd-systems = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }

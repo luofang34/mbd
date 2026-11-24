@@ -1,0 +1,500 @@
+use core::f64::consts::{PI, TAU};
+
+use glam::{DMat3, DQuat, DVec3};
+use mbd_core::{
+    ComponentId, ComponentSpec, ComponentState, ComponentTree, DynamicMassContribution, JointSpec,
+    Placement,
+};
+
+use super::*;
+use crate::aba::{FloatingBaseState, MultiBodyDynamics};
+use crate::{MultibodyModel, TimeScale};
+const EARTH: TimeScale = TimeScale::Acceleration(9.81);
+
+fn m_spec(
+    name: &str,
+    parent: Option<ComponentId>,
+    pos: DVec3,
+    mass_kg: f64,
+    diag: DVec3,
+    joint: JointSpec,
+) -> ComponentSpec {
+    ComponentSpec {
+        name: name.to_owned(),
+        placement: Placement {
+            parent,
+            translation_m: pos,
+            rotation: DQuat::IDENTITY,
+        },
+        dry_mass_kg: mass_kg,
+        dry_inertia_body: DMat3::from_diagonal(diag),
+        thermal_capacity_j_k: 100.0,
+        nominal_power_w: 0.0,
+        joint,
+    }
+}
+
+fn combine_momentum(
+    t1: &ComponentTree,
+    m1: &[DynamicMassContribution],
+    s1: &FloatingBaseState,
+    t2: &ComponentTree,
+    m2: &[DynamicMassContribution],
+    s2: &FloatingBaseState,
+) -> (DVec3, DVec3) {
+    let a = MultiBodyDynamics::system_momentum(t1, m1, s1).unwrap();
+    let b = MultiBodyDynamics::system_momentum(t2, m2, s2).unwrap();
+    let m_tot = a.total_mass_kg + b.total_mass_kg;
+    let com = (a.com_world_m * a.total_mass_kg + b.com_world_m * b.total_mass_kg) / m_tot;
+    let p = a.linear_world_kg_m_s + b.linear_world_kg_m_s;
+    let l = a.angular_about_com_world_nms
+        + (a.com_world_m - com).cross(a.linear_world_kg_m_s)
+        + b.angular_about_com_world_nms
+        + (b.com_world_m - com).cross(b.linear_world_kg_m_s);
+    (p, l)
+}
+
+#[test]
+fn off_cg_impulse_release_conserves_momentum() {
+    let tree = ComponentTree::new([
+        (
+            m_spec(
+                "stage",
+                None,
+                DVec3::ZERO,
+                1_200.0,
+                DVec3::new(300.0, 900.0, 900.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "payload",
+                Some(ComponentId(0)),
+                DVec3::new(3.0, 0.4, -0.2),
+                400.0,
+                DVec3::new(50.0, 120.0, 130.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    let base = FloatingBaseState {
+        position_world_m: DVec3::new(1000.0, 0.0, 0.0),
+        rotation_world_from_root: DQuat::from_rotation_z(0.5),
+        linear_vel_world_m_s: DQuat::from_rotation_z(0.5) * DVec3::new(100.0, -10.0, 5.0),
+        angular_vel_root_rad_s: DVec3::new(0.1, -0.2, 0.3),
+    };
+    let pre = MultiBodyDynamics::system_momentum(&tree, &[], &base).unwrap();
+    let split =
+        execute_impulse_release(&tree, &[], &base, ComponentId(1), 800.0, DVec3::X).unwrap();
+    let (p_post, l_post) = combine_momentum(
+        &split.parent_tree,
+        &split.parent_masses,
+        &split.parent_state,
+        &split.child_tree,
+        &split.child_masses,
+        &split.child_state,
+    );
+    let p_tol = 1e-12 * pre.linear_world_kg_m_s.length().max(1.0);
+    let l_tol = 1e-12 * pre.angular_about_com_world_nms.length().max(1.0);
+    assert!(
+        (p_post - pre.linear_world_kg_m_s).length() < p_tol,
+        "p_post={p_post:?} vs pre={:?}",
+        pre.linear_world_kg_m_s
+    );
+    assert!(
+        (l_post - pre.angular_about_com_world_nms).length() < l_tol,
+        "l_post={l_post:?} vs pre={:?}",
+        pre.angular_about_com_world_nms
+    );
+}
+
+#[test]
+fn rail_slide_release_ejects_seat_and_conserves_momentum() {
+    let mut rtree = ComponentTree::new([
+        (
+            m_spec(
+                "capsule",
+                None,
+                DVec3::ZERO,
+                2_000.0,
+                DVec3::splat(400.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "ejection_seat",
+                Some(ComponentId(0)),
+                DVec3::new(0.0, 0.0, -0.5),
+                120.0,
+                DVec3::splat(15.0),
+                JointSpec::prismatic(-DVec3::Z, -0.1, 2.0),
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    let rail = RailSlideSpec {
+        component: ComponentId(1),
+        rail_length_m: 1.5,
+        catapult_force_n: 12_000.0,
+        guide_friction_n: 200.0,
+    };
+    // The rail as a force element, fired from the start and stepped until
+    // its end-of-travel latch sets.
+    let slide = RailSlide {
+        spec: rail,
+        fire: true,
+    };
+    let model = MultibodyModel::with_derived_scale(&rtree, &[], EARTH).unwrap();
+    let start = FloatingBaseState::AT_REST;
+    let init_r = MultiBodyDynamics::system_momentum(&rtree, &[], &start).unwrap();
+    let mut state = model.state(&rtree, &start, &slide, &()).unwrap();
+    let mut work = crate::Workspace::new();
+    let mut rk4 = crate::Rk4::new();
+    let mut ready = false;
+    for k in 0..400 {
+        let t = f64::from(k) * 0.001;
+        model
+            .advance(&mut rk4, &slide, &(), &mut state, t, 0.001, &mut work)
+            .unwrap();
+        if RailSlideState::from_modes(state.modes()).ready_to_release {
+            ready = true;
+            break;
+        }
+    }
+    assert!(ready);
+    assert!(RailSlideState::from_modes(state.modes()).fired);
+    model.write_joints(&state, &mut rtree).unwrap();
+    let rbase = state.base();
+    let ejected = release_from_rail(&rail, &rtree, &[], &rbase).unwrap();
+    let (pr, lr) = combine_momentum(
+        &ejected.parent_tree,
+        &ejected.parent_masses,
+        &ejected.parent_state,
+        &ejected.child_tree,
+        &ejected.child_masses,
+        &ejected.child_state,
+    );
+    assert!((pr - init_r.linear_world_kg_m_s).length() < 1e-11);
+    assert!((lr - init_r.angular_about_com_world_nms).length() < 1e-11);
+    assert!(ejected.child_state.linear_vel_world_m_s.z < -10.0);
+}
+
+fn gemini_and_agena_fixtures() -> (ComponentTree, ComponentTree) {
+    let gemini = ComponentTree::new([
+        (
+            m_spec(
+                "gemini",
+                None,
+                DVec3::ZERO,
+                3_200.0,
+                DVec3::new(900.0, 2_200.0, 2_200.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "nose_port",
+                Some(ComponentId(0)),
+                DVec3::X * 2.5,
+                50.0,
+                DVec3::ZERO,
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    let agena = ComponentTree::new([
+        (
+            m_spec(
+                "agena",
+                None,
+                DVec3::ZERO,
+                3_100.0,
+                DVec3::new(800.0, 3_000.0, 3_000.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "target_adapter",
+                Some(ComponentId(0)),
+                DVec3::X * 2.0,
+                40.0,
+                DVec3::ZERO,
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    (gemini, agena)
+}
+
+#[test]
+fn gemini8_docking_and_60rpm_undocking_conserve_momentum() {
+    let (gemini, agena) = gemini_and_agena_fixtures();
+
+    let sa = FloatingBaseState {
+        position_world_m: DVec3::ZERO,
+        rotation_world_from_root: DQuat::IDENTITY,
+        linear_vel_world_m_s: DVec3::new(10.0, 2.0, -1.0),
+        angular_vel_root_rad_s: DVec3::new(TAU, 0.5, -0.3),
+    };
+    let sb = FloatingBaseState {
+        position_world_m: DVec3::new(4.5, 0.0, 0.0),
+        rotation_world_from_root: DQuat::from_rotation_y(std::f64::consts::PI),
+        linear_vel_world_m_s: DQuat::from_rotation_y(PI) * DVec3::new(-9.8, 0.0, 0.0),
+        angular_vel_root_rad_s: DVec3::ZERO,
+    };
+    let (p_before, l_before) = combine_momentum(&gemini, &[], &sa, &agena, &[], &sb);
+    let mated = hard_mate_vessels(
+        &gemini,
+        &[],
+        &sa,
+        ComponentId(1),
+        &agena,
+        &[],
+        &sb,
+        ComponentId(1),
+        Placement {
+            parent: None,
+            translation_m: DVec3::ZERO,
+            rotation: DQuat::from_rotation_y(std::f64::consts::PI),
+        },
+    )
+    .unwrap();
+    let mom_mated =
+        MultiBodyDynamics::system_momentum(&mated.tree, &mated.dynamic_masses, &mated.base_state)
+            .unwrap();
+    assert!(
+        (mom_mated.linear_world_kg_m_s - p_before).length() < 1e-11,
+        "mated p={:?} vs {p_before:?}",
+        mom_mated.linear_world_kg_m_s
+    );
+    assert!(
+        (mom_mated.angular_about_com_world_nms - l_before).length() < 1e-10,
+        "mated l={:?} vs {l_before:?}",
+        mom_mated.angular_about_com_world_nms
+    );
+
+    let sep = undock_vessel(
+        &mated.tree,
+        &mated.dynamic_masses,
+        &mated.base_state,
+        mated.b_id_map[1].1,
+        300.0,
+        DVec3::X,
+    )
+    .unwrap();
+    let (p_sep, l_sep) = combine_momentum(
+        &sep.parent_tree,
+        &sep.parent_masses,
+        &sep.parent_state,
+        &sep.child_tree,
+        &sep.child_masses,
+        &sep.child_state,
+    );
+    assert!((p_sep - p_before).length() < 1e-11);
+    assert!((l_sep - l_before).length() < 1e-10);
+}
+
+#[test]
+fn soft_capture_ring_exerts_balanced_action_reaction_wrench() {
+    let dock_spec = DockingSpec {
+        capture_radius_m: 0.4,
+        capture_angle_rad: 0.3,
+        max_closing_speed_m_s: 0.5,
+        damping_vel_threshold_m_s: 0.2,
+        damping_rate_threshold_rad_s: 0.2,
+        retraction_speed_m_s: 0.2,
+        linear_stiffness_n_m: 1_000.0,
+        linear_damping_n_s_m: 200.0,
+        angular_stiffness_nm_rad: 500.0,
+        angular_damping_nm_s_rad: 100.0,
+        undock_impulse_ns: 300.0,
+        min_capture_standoff_m: DockingSpec::DEFAULT_MIN_CAPTURE_STANDOFF_M,
+        damped_dwell_s: DockingSpec::DEFAULT_DAMPED_DWELL_S,
+        latch_standoff_tolerance_m: DockingSpec::DEFAULT_LATCH_STANDOFF_TOLERANCE_M,
+        latch_distance_m: DockingSpec::DEFAULT_LATCH_DISTANCE_M,
+    };
+    let mut dst = DockingState::default();
+    let port_a = PortKinematics {
+        position_world_m: DVec3::ZERO,
+        rotation_world: DQuat::IDENTITY,
+        velocity_world_m_s: DVec3::ZERO,
+        angular_vel_world_rad_s: DVec3::ZERO,
+    };
+    let port_b = PortKinematics {
+        position_world_m: DVec3::X * 0.2,
+        velocity_world_m_s: DVec3::X * -0.05,
+        ..port_a
+    };
+    let captured = dock_spec.transition(&mut dst, &port_a, &port_b, DVec3::X);
+    assert!(captured.changed && !captured.ready_for_hard_mate);
+    let soft = dock_spec.evaluate(&dst, &port_a, &port_b, DVec3::X);
+    assert_eq!(dst.phase, DockingPhase::SoftContact);
+    assert!(soft.world_wrench_on_b.force.length() > 0.0);
+    assert!((soft.world_wrench_on_a.force + soft.world_wrench_on_b.force).length() < 1e-12);
+}
+
+/// One explicit-Euler step of a tether between prescribed anchors:
+/// evaluate, advance its continuous states, apply the boundary events.
+/// Returns whether the line was severed on this step.
+fn step_tether(
+    spec: &WinchTetherSpec,
+    state: &mut WinchTetherState,
+    cmd: &TetherCommand,
+    anchor_b_world_m: DVec3,
+    dt_s: f64,
+) -> bool {
+    let ends = TetherEnds {
+        anchor_a_world_m: DVec3::ZERO,
+        vel_a_world_m_s: DVec3::ZERO,
+        anchor_b_world_m,
+        vel_b_world_m_s: DVec3::ZERO,
+    };
+    let out = spec.evaluate(state, cmd, &ends);
+    state.deployed_length_m += out.deployed_length_rate_m_s * dt_s;
+    state.absorbed_thermal_j += out.absorbed_thermal_rate_w * dt_s;
+    state.low_tension_timer_s += out.low_tension_timer_rate * dt_s;
+    spec.transition(state, cmd, &ends).is_some()
+}
+
+#[test]
+fn tether_models_vostok_burn_through_and_sky_crane_autocut() {
+    let vostok_spec = WinchTetherSpec {
+        stiffness_n_m: 50_000.0,
+        damping_n_s_m: 1_000.0,
+        max_length_m: 2.0,
+        breaking_tension_n: 200_000.0,
+        burn_through_energy_j: Some(1_000.0),
+        auto_cut_low_tension_n: None,
+        auto_cut_dwell_s: 0.0,
+    };
+    let mut vst = WinchTetherState::intact_at(1.0);
+    let heating = TetherCommand {
+        heat_rate_w: 600.0,
+        ..TetherCommand::default()
+    };
+    let severed_first = step_tether(&vostok_spec, &mut vst, &heating, DVec3::X * 1.1, 1.0);
+    assert!(!severed_first);
+    let severed_second = step_tether(&vostok_spec, &mut vst, &heating, DVec3::X * 1.1, 1.0);
+    assert!(severed_second);
+    assert_eq!(vst.cut_reason, Some(TetherCutReason::ThermalBurnThrough));
+
+    let sky_crane = WinchTetherSpec {
+        stiffness_n_m: 20_000.0,
+        damping_n_s_m: 500.0,
+        max_length_m: 10.0,
+        breaking_tension_n: 50_000.0,
+        burn_through_energy_j: None,
+        auto_cut_low_tension_n: Some(150.0),
+        auto_cut_dwell_s: 0.2,
+    };
+    let mut sst = WinchTetherState::intact_at(2.0);
+    let paying_out = TetherCommand {
+        payout_rate_m_s: 1.5,
+        ..TetherCommand::default()
+    };
+    let bridle = DVec3::new(0.0, 0.0, 3.6);
+    step_tether(&sky_crane, &mut sst, &paying_out, bridle, 1.0);
+    assert!((sst.deployed_length_m - 3.5).abs() < 1e-12);
+    let holding = TetherCommand::default();
+    for _ in 0..3 {
+        step_tether(
+            &sky_crane,
+            &mut sst,
+            &holding,
+            DVec3::new(0.0, 0.0, 3.3),
+            0.1,
+        );
+    }
+    assert!(!sst.intact);
+    assert_eq!(sst.cut_reason, Some(TetherCutReason::TouchdownAutoCut));
+}
+
+#[test]
+fn hinged_panel_opens_only_when_unlatched_and_latches_at_its_release_angle() {
+    let tree = ComponentTree::new([
+        (
+            m_spec(
+                "adapter",
+                None,
+                DVec3::ZERO,
+                1_800.0,
+                DVec3::splat(900.0),
+                JointSpec::FIXED,
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+        (
+            m_spec(
+                "sla_panel",
+                Some(ComponentId(0)),
+                DVec3::new(0.0, 2.0, 0.0),
+                120.0,
+                DVec3::new(60.0, 10.0, 60.0),
+                JointSpec::revolute(DVec3::X, -0.1, 2.0),
+            ),
+            ComponentState::at_temperature(293.15),
+        ),
+    ])
+    .unwrap();
+    let spec = HingeSwingSpec {
+        component: ComponentId(1),
+        release_angle_rad: 0.8,
+        spring_torque_nm: 400.0,
+        damper_nm_s_rad: 20.0,
+    };
+    let model = MultibodyModel::with_derived_scale(&tree, &[], EARTH).unwrap();
+    let base = FloatingBaseState::AT_REST;
+    let mut work = crate::Workspace::new();
+    let run = |unlatch: bool, work: &mut crate::Workspace| {
+        let panel = HingeRelease { spec, unlatch };
+        let mut state = model.state(&tree, &base, &panel, &()).unwrap();
+        let mut rk4 = crate::Rk4::new();
+        for k in 0..2_000 {
+            let t = f64::from(k) * 1e-3;
+            model
+                .advance(&mut rk4, &panel, &(), &mut state, t, 1e-3, work)
+                .unwrap();
+            if HingeSwingState::from_modes(state.modes()).ready_to_release {
+                break;
+            }
+        }
+        state
+    };
+    let latched = run(false, &mut work);
+    assert_eq!(
+        model
+            .joint_state(&latched, ComponentId(1))
+            .unwrap()
+            .q_scalar,
+        0.0
+    );
+    assert_eq!(
+        HingeSwingState::from_modes(latched.modes()),
+        HingeSwingState::default()
+    );
+    let opened = run(true, &mut work);
+    let st = HingeSwingState::from_modes(opened.modes());
+    assert!(st.unlatched && st.ready_to_release);
+    let angle = model.joint_state(&opened, ComponentId(1)).unwrap().q_scalar;
+    // The latch sets at the first accepted boundary past the angle: within
+    // one step of travel.
+    assert!((0.8..0.85).contains(&angle), "{angle}");
+    // The spring acts between panel and adapter only: no net momentum.
+    let p = model.system_momentum(&opened, &mut work).unwrap();
+    assert!(p.linear_world_kg_m_s.length() < 1e-9);
+    assert!(p.angular_about_com_world_nms.length() < 1e-9);
+}
